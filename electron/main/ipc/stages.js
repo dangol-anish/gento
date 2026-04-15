@@ -1,4 +1,6 @@
-const { ipcMain } = require("electron");
+const { ipcMain, shell } = require("electron");
+const { spawn } = require("child_process");
+const path = require("path");
 const {
   ErrorCodes,
   createSuccess,
@@ -40,6 +42,55 @@ function validateRunStagePayload(payload) {
  * with Python process orchestration in the next step.
  */
 function registerStageIpcHandlers() {
+  ipcMain.handle("open-path", async (_event, payload) => {
+    if (!payload || typeof payload !== "object" || typeof payload.path !== "string") {
+      return createError(ErrorCodes.INVALID_REQUEST, "path is required for open-path.");
+    }
+
+    const resolvedPath = path.resolve(process.cwd(), payload.path);
+    try {
+      const errorMessage = await shell.openPath(resolvedPath);
+      if (errorMessage) {
+        return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to open requested path.", {
+          path: resolvedPath,
+          reason: errorMessage,
+        });
+      }
+      return createSuccess({ path: resolvedPath });
+    } catch (error) {
+      return toUnknownError(error);
+    }
+  });
+
+  ipcMain.handle("scrape-manga", async (_event, payload) => {
+    if (!payload || typeof payload !== "object" || typeof payload.url !== "string") {
+      return createError(ErrorCodes.INVALID_REQUEST, "url is required for scrape-manga.");
+    }
+
+    const outDir = payload.outDir || "./downloads";
+    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    const args = ["-m", "scripts.downloader.scraper", "--url", payload.url, "--out", outDir, "--details-only"];
+
+    try {
+      const result = await runPythonCommand(pythonCmd, args);
+      if (!result.ok) {
+        return result;
+      }
+
+      const completeEvent = result.data.events.find((evt) => evt.type === "complete");
+      if (!completeEvent) {
+        return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Scrape completed without complete event.");
+      }
+
+      return createSuccess({
+        manga_metadata: completeEvent.manga_metadata || {},
+        chapters: completeEvent.chapters || [],
+      });
+    } catch (error) {
+      return toUnknownError(error);
+    }
+  });
+
   ipcMain.handle("run-stage", async (_event, payload) => {
     const validationError = validateRunStagePayload(payload);
     if (validationError) {
@@ -49,6 +100,12 @@ function registerStageIpcHandlers() {
     const { stage, args } = payload;
 
     try {
+      if (stage === 0) {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.downloader.scraper", ...args]);
+        return runResult;
+      }
+
       return createSuccess({
         stage,
         args,
@@ -61,6 +118,57 @@ function registerStageIpcHandlers() {
         toUnknownError(error).error,
       );
     }
+  });
+}
+
+function runPythonCommand(command, commandArgs) {
+  return new Promise((resolve) => {
+    const proc = spawn(command, commandArgs, {
+      cwd: process.cwd(),
+      env: process.env,
+    });
+
+    let stderr = "";
+    const events = [];
+
+    proc.stdout.on("data", (chunk) => {
+      const text = chunk.toString();
+      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          events.push(parsed);
+        } catch (_) {
+          // Ignore non-JSON lines from python stage stdout.
+        }
+      }
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve(createSuccess({ events }));
+        return;
+      }
+      resolve(
+        createError(ErrorCodes.PROCESS_EXIT_NON_ZERO, "Python stage exited with a non-zero code.", {
+          exitCode: code,
+          stderr: stderr || null,
+          events,
+        }),
+      );
+    });
+
+    proc.on("error", (error) => {
+      resolve(
+        createError(ErrorCodes.PROCESS_SPAWN_FAILED, "Failed to spawn Python process.", {
+          message: error.message,
+        }),
+      );
+    });
   });
 }
 

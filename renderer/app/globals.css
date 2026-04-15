@@ -101,6 +101,15 @@
     box-shadow: var(--glass-interactive-shadow);
   }
 
+  .no-scrollbar {
+    -ms-overflow-style: none; /* IE and old Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
   .anim-enter {
     animation: fade-up 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }

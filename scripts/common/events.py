@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from scripts.common.contracts import validate_stage_event
 from scripts.common.errors import AppError, ERROR_CODES
 
 
@@ -8,6 +9,7 @@ def emit(event_type: str, **payload: Any) -> None:
     """
     Emit one JSON event line for Electron IPC parsing.
     """
+    validate_stage_event(event_type, payload)
     print(json.dumps({"type": event_type, **payload}), flush=True)
 
 

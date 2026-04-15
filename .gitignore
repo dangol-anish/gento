@@ -6,3 +6,7 @@ downloads/
 *.log
 __pycache__/
 .venv/
+
+# Next.js build output (renderer)
+renderer/.next/
+renderer/out/

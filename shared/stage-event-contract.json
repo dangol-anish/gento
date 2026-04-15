@@ -1,0 +1,16 @@
+{
+  "event_types": {
+    "progress": {
+      "required_fields": ["stage", "message"]
+    },
+    "complete": {
+      "required_fields": ["stage"]
+    },
+    "error": {
+      "required_fields": ["stage", "error"]
+    }
+  },
+  "response_envelope": {
+    "required_fields": ["ok", "data", "error"]
+  }
+}

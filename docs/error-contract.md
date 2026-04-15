@@ -77,6 +77,8 @@ Rules:
 Error codes are defined in:
 
 - `shared/error-codes.json`
+- Stage event contract is defined in:
+  - `shared/stage-event-contract.json`
 
 Current code set:
 
@@ -88,6 +90,7 @@ Current code set:
 - `INTERNAL_ERROR`: unexpected exception or unclassified failure.
 
 Never hardcode new codes in random files. Add new codes only in `shared/error-codes.json` first.
+Never change stage event field requirements in runtime code only; update `shared/stage-event-contract.json` first.
 
 ## 4) Code Selection Guidelines
 
