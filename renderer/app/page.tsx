@@ -42,7 +42,7 @@ export default function Home() {
   }, [progress]);
 
   return (
-    <main className="h-screen overflow-hidden p-4 md:p-5">
+    <main className="min-h-screen overflow-y-auto p-4 md:p-5 lg:h-screen lg:overflow-hidden">
       <div className="mb-3 flex items-center justify-between lg:hidden">
         <Button variant="secondary" size="sm" className="gap-2" onClick={() => setSidebarOpen(true)}>
           <Menu className="h-4 w-4" />
@@ -51,7 +51,7 @@ export default function Home() {
         <Badge variant="muted">{view === "settings" ? "Settings" : "Pipeline"}</Badge>
       </div>
 
-      <div className="grid h-[calc(100%-3rem)] grid-cols-1 gap-5 lg:h-full lg:grid-cols-[280px_1fr]">
+      <div className="grid min-h-[calc(100vh-6rem)] grid-cols-1 gap-5 lg:h-full lg:min-h-0 lg:grid-cols-[280px_1fr]">
         <Card
           className={`fixed inset-y-4 left-4 z-40 w-[280px] flex-col justify-between transition-transform duration-200 lg:static lg:z-auto lg:flex lg:w-auto lg:translate-x-0 ${
             sidebarOpen ? "flex translate-x-0" : "hidden"
