@@ -1,0 +1,10 @@
+{
+  "download_path": "./downloads",
+  "output_path": "./output",
+  "ollama_host": "http://localhost:11434",
+  "ollama_model": "gemma3:4b",
+  "magi_model": "ragavsachdeva/magiv3",
+  "magi_device": "cpu",
+  "tts_voice": "af_heart",
+  "tts_speed": 1.0
+}

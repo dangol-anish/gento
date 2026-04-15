@@ -1,0 +1,14 @@
+{
+  "name": "gento",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Manga-to-video desktop app scaffold",
+  "main": "electron/main/main.js",
+  "scripts": {
+    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
+    "dev": "env -u ELECTRON_RUN_AS_NODE electron ."
+  },
+  "devDependencies": {
+    "electron": "^36.0.0"
+  }
+}
