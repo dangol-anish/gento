@@ -7,15 +7,82 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <header class="app-header">
-        <h1>Gento</h1>
-        <p>Manga-to-Video Pipeline Skeleton</p>
-      </header>
-      <section class="card">
-        <h2>Pipeline Bridge Check</h2>
-        <p id="status">Waiting for stage runner...</p>
-        <button id="run-test-stage" type="button">Run Stage Stub</button>
+    <main class="app-frame">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">G</div>
+          <div>
+            <p class="brand-title">Gento</p>
+            <p class="brand-subtitle">Manga Video Studio</p>
+          </div>
+        </div>
+
+        <nav class="stage-nav" aria-label="Pipeline stages">
+          <button class="stage-item stage-item-active" type="button">
+            <span class="stage-dot stage-dot-active"></span>
+            <span>Download</span>
+          </button>
+          <button class="stage-item" type="button">
+            <span class="stage-dot"></span>
+            <span>Extract</span>
+          </button>
+          <button class="stage-item" type="button">
+            <span class="stage-dot"></span>
+            <span>Scenes</span>
+          </button>
+          <button class="stage-item" type="button">
+            <span class="stage-dot"></span>
+            <span>Recap</span>
+          </button>
+          <button class="stage-item" type="button">
+            <span class="stage-dot"></span>
+            <span>Refine</span>
+          </button>
+          <button class="stage-item" type="button">
+            <span class="stage-dot"></span>
+            <span>Audio</span>
+          </button>
+          <button class="stage-item" type="button">
+            <span class="stage-dot"></span>
+            <span>Video</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button class="secondary-button sidebar-settings" type="button">Settings</button>
+        </div>
+      </aside>
+
+      <section class="content">
+        <header class="toolbar">
+          <div>
+            <h1 class="page-title">Pipeline Control</h1>
+            <p class="page-subtitle">Stage orchestration and runtime diagnostics</p>
+          </div>
+          <div class="toolbar-badge">Prototype</div>
+        </header>
+
+        <section class="panel-grid">
+          <article class="panel panel-primary">
+            <div class="panel-header">
+              <h2>Stage 0 Smoke Test</h2>
+              <span id="status-chip" class="status-chip status-idle">Idle</span>
+            </div>
+            <p id="status" class="status-text">Waiting for stage runner...</p>
+            <div class="panel-actions">
+              <button id="run-test-stage" class="primary-button" type="button">Run Stage Stub</button>
+            </div>
+          </article>
+
+          <article class="panel panel-secondary">
+            <h2>Design Intent</h2>
+            <ul class="intent-list">
+              <li>Dense but readable professional desktop layout</li>
+              <li>Clear hierarchy with restrained accent color usage</li>
+              <li>Consistent component rhythm and interactive states</li>
+            </ul>
+          </article>
+        </section>
       </section>
     </main>
 

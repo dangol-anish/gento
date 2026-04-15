@@ -1,4 +1,4 @@
-const { app } = require("electron");
+const { app, BrowserWindow } = require("electron");
 const { createMainWindow } = require("./window");
 const { registerStageIpcHandlers } = require("./ipc/stages");
 
@@ -11,7 +11,7 @@ app.whenReady().then(() => {
   bootstrap();
 
   app.on("activate", () => {
-    if (app.getAllWindows().length === 0) {
+    if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
     }
   });

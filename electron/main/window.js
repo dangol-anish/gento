@@ -2,6 +2,7 @@ const { BrowserWindow } = require("electron");
 const path = require("path");
 
 function createMainWindow() {
+  const rendererUrl = process.env.GENTO_RENDERER_URL;
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -14,7 +15,12 @@ function createMainWindow() {
     },
   });
 
-  window.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  if (rendererUrl) {
+    window.loadURL(rendererUrl);
+  } else {
+    window.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  }
+
   return window;
 }
 

@@ -6,7 +6,10 @@
   "main": "electron/main/main.js",
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "dev": "env -u ELECTRON_RUN_AS_NODE electron ."
+    "dev": "npm run renderer:dev",
+    "renderer:dev": "npm run dev --prefix renderer",
+    "renderer:build": "npm run build --prefix renderer",
+    "renderer:start": "npm run start --prefix renderer"
   },
   "devDependencies": {
     "electron": "^36.0.0"
