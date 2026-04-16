@@ -7,9 +7,22 @@ interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 function Progress({ className, value = 0, ...props }: ProgressProps) {
+  const sanitizedValue = Math.max(0, Math.min(100, value));
+
   return (
-    <div className={cn("relative h-2.5 w-full overflow-hidden rounded-full border border-white/60 bg-white/50 backdrop-blur-xl", className)} {...props}>
-      <div className="h-full bg-primary transition-all" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    <div
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={sanitizedValue}
+      className={cn("progress-track", className)}
+      {...props}
+    >
+      <div
+        className="progress-fill"
+        style={{ width: `${sanitizedValue}%` }}
+      />
+      <div className="progress-label">{sanitizedValue}%</div>
     </div>
   );
 }
