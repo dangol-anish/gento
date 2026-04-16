@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { FiFolder } from "react-icons/fi";
 import { Button } from "@/components/ui/button";
@@ -21,11 +21,26 @@ import {
   extractLastPercent,
 } from "@/lib/stage0";
 
-type Props = {
-  outDir?: string;
+export type Stage0Session = {
+  mangaUrl: string;
+  totalChapters: number;
+  selectedChapters: number;
+  progress: number;
+  isScraping: boolean;
+  isRunningStage: boolean;
+  lastOutputDir: string;
+  stageMessage: string;
 };
 
-export function Stage0Downloader({ outDir = "./downloads" }: Props) {
+type Props = {
+  outDir?: string;
+  onSessionUpdate?: (session: Stage0Session) => void;
+};
+
+export function Stage0Downloader({
+  outDir = "./downloads",
+  onSessionUpdate,
+}: Props) {
   const [progress, setProgress] = useState(0);
   const [mangaUrl, setMangaUrl] = useState("");
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -51,6 +66,33 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
   );
   const allSelected =
     chapters.length > 0 && selectedChapterUrls.size === chapters.length;
+
+  const sessionState = useMemo<Stage0Session>(
+    () => ({
+      mangaUrl,
+      totalChapters: chapters.length,
+      selectedChapters: selectedChapters.length,
+      progress,
+      isScraping,
+      isRunningStage,
+      lastOutputDir,
+      stageMessage,
+    }),
+    [
+      mangaUrl,
+      chapters.length,
+      selectedChapters.length,
+      progress,
+      isScraping,
+      isRunningStage,
+      lastOutputDir,
+      stageMessage,
+    ],
+  );
+
+  useEffect(() => {
+    onSessionUpdate?.(sessionState);
+  }, [onSessionUpdate, sessionState]);
 
   const toggleChapter = (url: string) => {
     setSelectedChapterUrls((prev) => {
@@ -257,7 +299,7 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
               value={mangaUrl}
               onChange={(event) => setMangaUrl(event.target.value)}
               placeholder="https://mangabuddy.com/your-manga"
-              className="glass-interactive h-10 w-full rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              className="glass-interactive h-10 w-full rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground border"
             />
             <Button
               variant="secondary"

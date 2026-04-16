@@ -18,10 +18,7 @@ function Progress({ className, value = 0, ...props }: ProgressProps) {
       className={cn("progress-track", className)}
       {...props}
     >
-      <div
-        className="progress-fill"
-        style={{ width: `${sanitizedValue}%` }}
-      />
+      <div className="progress-fill" style={{ width: `${sanitizedValue}%` }} />
       <div className="progress-label">{sanitizedValue}%</div>
     </div>
   );
