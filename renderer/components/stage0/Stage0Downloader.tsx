@@ -1,7 +1,14 @@
 import { useMemo, useState } from "react";
 
+import { FiFolder } from "react-icons/fi";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ChapterPicker } from "@/components/stage0/ChapterPicker";
 import { DownloadOptions } from "@/components/stage0/DownloadOptions";
@@ -22,11 +29,17 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
   const [progress, setProgress] = useState(0);
   const [mangaUrl, setMangaUrl] = useState("");
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [selectedChapterUrls, setSelectedChapterUrls] = useState<Set<string>>(new Set());
+  const [selectedChapterUrls, setSelectedChapterUrls] = useState<Set<string>>(
+    new Set(),
+  );
   const [isScraping, setIsScraping] = useState(false);
   const [isRunningStage, setIsRunningStage] = useState(false);
-  const [stageMessage, setStageMessage] = useState("Ready to scrape manga details.");
-  const [downloadFormat, setDownloadFormat] = useState<"none" | "pdf" | "cbz">("none");
+  const [stageMessage, setStageMessage] = useState(
+    "Ready to scrape manga details.",
+  );
+  const [downloadFormat, setDownloadFormat] = useState<"none" | "pdf" | "cbz">(
+    "none",
+  );
   const [deleteImages, setDeleteImages] = useState(false);
   const [rangeStart, setRangeStart] = useState("1");
   const [rangeEnd, setRangeEnd] = useState("1");
@@ -36,7 +49,8 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
     () => chapters.filter((chapter) => selectedChapterUrls.has(chapter.url)),
     [chapters, selectedChapterUrls],
   );
-  const allSelected = chapters.length > 0 && selectedChapterUrls.size === chapters.length;
+  const allSelected =
+    chapters.length > 0 && selectedChapterUrls.size === chapters.length;
 
   const toggleChapter = (url: string) => {
     setSelectedChapterUrls((prev) => {
@@ -69,7 +83,9 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
 
     const safeStart = Math.max(1, Math.min(start, chapters.length));
     const safeEnd = Math.max(safeStart, Math.min(end, chapters.length));
-    const ranged = chapters.slice(safeStart - 1, safeEnd).map((chapter) => chapter.url);
+    const ranged = chapters
+      .slice(safeStart - 1, safeEnd)
+      .map((chapter) => chapter.url);
     setSelectedChapterUrls(new Set(ranged));
     setStageMessage(`Selected chapters ${safeStart} to ${safeEnd}.`);
   };
@@ -85,7 +101,9 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
 
     try {
       if (!window.gento) {
-        setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
+        setStageMessage(
+          "Desktop bridge is unavailable. Restart Electron to reload preload.",
+        );
         return;
       }
 
@@ -94,25 +112,46 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
       if (typeof window.gento.scrapeManga === "function") {
         const result = await window.gento.scrapeManga(mangaUrl.trim(), outDir);
         if (!result.ok) {
-          setStageMessage(formatRuntimeError(result.error.code, result.error.message, result.error.details));
+          setStageMessage(
+            formatRuntimeError(
+              result.error.code,
+              result.error.message,
+              result.error.details,
+            ),
+          );
           return;
         }
         chaptersResult = result.data.chapters || [];
       } else {
-        const result = await window.gento.runStage(0, buildStage0Args({ url: mangaUrl.trim(), outDir, detailsOnly: true }));
+        const result = await window.gento.runStage(
+          0,
+          buildStage0Args({ url: mangaUrl.trim(), outDir, detailsOnly: true }),
+        );
         if (!result.ok) {
-          setStageMessage(formatRuntimeError(result.error.code, result.error.message, result.error.details));
+          setStageMessage(
+            formatRuntimeError(
+              result.error.code,
+              result.error.message,
+              result.error.details,
+            ),
+          );
           return;
         }
-        chaptersResult = extractChaptersFromEvents((result.data?.events || []) as any);
+        chaptersResult = extractChaptersFromEvents(
+          (result.data?.events || []) as any,
+        );
       }
 
       setChapters(chaptersResult);
-      setSelectedChapterUrls(new Set(chaptersResult.map((chapter) => chapter.url)));
+      setSelectedChapterUrls(
+        new Set(chaptersResult.map((chapter) => chapter.url)),
+      );
       setRangeStart("1");
       setRangeEnd(String(Math.max(1, chaptersResult.length)));
       setProgress(0);
-      setStageMessage(`Scrape complete. Found ${chaptersResult.length} chapters.`);
+      setStageMessage(
+        `Scrape complete. Found ${chaptersResult.length} chapters.`,
+      );
     } catch (error) {
       setStageMessage(`Scrape failed: ${(error as Error).message}`);
     } finally {
@@ -130,7 +169,9 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
       return;
     }
     if (!window.gento || typeof window.gento.runStage !== "function") {
-      setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
+      setStageMessage(
+        "Desktop bridge is unavailable. Restart Electron to reload preload.",
+      );
       return;
     }
 
@@ -149,7 +190,13 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
 
       const result = await window.gento.runStage(0, args);
       if (!result.ok) {
-        setStageMessage(formatRuntimeError(result.error.code, result.error.message, result.error.details));
+        setStageMessage(
+          formatRuntimeError(
+            result.error.code,
+            result.error.message,
+            result.error.details,
+          ),
+        );
         setProgress(0);
         return;
       }
@@ -164,7 +211,9 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
       if (complete) {
         setProgress(100);
         setLastOutputDir(complete.outputDir || outDir);
-        setStageMessage(`Downloaded ${complete.downloadedChapters || selectedChapters.length} chapters to ${complete.outputDir || outDir}.`);
+        setStageMessage(
+          `Downloaded ${complete.downloadedChapters || selectedChapters.length} chapters to ${complete.outputDir || outDir}.`,
+        );
       } else {
         setStageMessage("Stage completed.");
       }
@@ -178,7 +227,9 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
 
   const handleOpenFolder = async () => {
     if (!window.gento?.openPath) {
-      setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
+      setStageMessage(
+        "Desktop bridge is unavailable. Restart Electron to reload preload.",
+      );
       return;
     }
     const result = await window.gento.openPath(lastOutputDir);
@@ -188,14 +239,18 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
   };
 
   return (
-    <Card>
+    <Card className=" lg:flex lg:flex-col lg:min-h-0 lg:h-full">
       <CardHeader className="border-b border-border/60 p-5">
         <CardTitle>Stage 0 Downloader</CardTitle>
-        <CardDescription>Scrape chapters and download selected ones from MangaBuddy.</CardDescription>
+        <CardDescription>
+          Scrape chapters and download selected ones from MangaBuddy.
+        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5 p-5">
+      <CardContent className="space-y-5 p-5 pt-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
         <div className="space-y-2">
-          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Manga URL</label>
+          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Manga URL
+          </label>
           <div className="flex gap-2">
             <input
               type="text"
@@ -204,7 +259,11 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
               placeholder="https://mangabuddy.com/your-manga"
               className="glass-interactive h-10 w-full rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
-            <Button variant="secondary" onClick={handleScrapeManga} disabled={isScraping}>
+            <Button
+              variant="secondary"
+              onClick={handleScrapeManga}
+              disabled={isScraping}
+            >
               {isScraping ? "Scraping..." : "Scrape"}
             </Button>
           </div>
@@ -233,27 +292,38 @@ export function Stage0Downloader({ outDir = "./downloads" }: Props) {
 
         <Progress value={progress} />
         <p className="text-sm text-muted-foreground/90">{stageMessage}</p>
+        <div className="flex justify-between items-center">
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={handleRunStage0}
+              disabled={isRunningStage || chapters.length === 0}
+            >
+              {isRunningStage ? "Downloading..." : "Download Selected"}
+            </Button>
 
-        <div className="flex flex-wrap gap-3">
-          <Button onClick={handleRunStage0} disabled={isRunningStage || chapters.length === 0}>
-            {isRunningStage ? "Downloading..." : "Download Selected"}
-          </Button>
-          <Button variant="secondary" onClick={handleOpenFolder}>
-            Open Download Folder
-          </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setProgress(0);
+                setIsRunningStage(false);
+                setStageMessage("Progress cleared.");
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+
           <Button
             variant="secondary"
-            onClick={() => {
-              setProgress(0);
-              setIsRunningStage(false);
-              setStageMessage("Progress cleared.");
-            }}
+            onClick={handleOpenFolder}
+            aria-label="Open download folder"
+            title="Open download folder"
+            className="h-10 w-10 p-0"
           >
-            Clear Progress
+            <FiFolder className="h-4 w-4" />
           </Button>
         </div>
       </CardContent>
     </Card>
   );
 }
-
