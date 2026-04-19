@@ -20,6 +20,7 @@ import {
   extractCompleteSummary,
   extractLastPercent,
 } from "@/lib/stage0";
+import { useToast } from "@/components/ui/toast";
 
 export type Stage0Session = {
   mangaUrl: string;
@@ -41,6 +42,7 @@ export function Stage0Downloader({
   outDir = "./downloads",
   onSessionUpdate,
 }: Props) {
+  const toast = useToast();
   const [progress, setProgress] = useState(0);
   const [mangaUrl, setMangaUrl] = useState("");
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -93,6 +95,52 @@ export function Stage0Downloader({
   useEffect(() => {
     onSessionUpdate?.(sessionState);
   }, [onSessionUpdate, sessionState]);
+
+  useEffect(() => {
+    if (!window.gento?.onStageEvent) {
+      return;
+    }
+
+    const unsubscribe = window.gento.onStageEvent((payload) => {
+      if (!payload || payload.stage !== 0) {
+        return;
+      }
+
+      if (payload.type === "progress") {
+        if (typeof payload.percent === "number") {
+          setProgress(payload.percent);
+        }
+        if (payload.message) {
+          setStageMessage(payload.message);
+        }
+        return;
+      }
+
+      if (payload.type === "complete") {
+        setProgress(100);
+        if (payload.output_dir) {
+          setLastOutputDir(payload.output_dir);
+        }
+        setStageMessage(payload.message ?? "Stage 0 complete.");
+        return;
+      }
+
+      if (payload.type === "error") {
+        const errorMessage =
+          payload.error && typeof payload.error === "object"
+            ? (payload.error as { message?: string }).message
+            : undefined;
+        setStageMessage(errorMessage || payload.message || "Stage 0 failed.");
+        return;
+      }
+
+      if (payload.type === "log" && payload.message) {
+        setStageMessage(payload.message);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
 
   const toggleChapter = (url: string) => {
     setSelectedChapterUrls((prev) => {
@@ -194,8 +242,11 @@ export function Stage0Downloader({
       setStageMessage(
         `Scrape complete. Found ${chaptersResult.length} chapters.`,
       );
+      toast.success("Scrape complete", `Found ${chaptersResult.length} chapters.`);
     } catch (error) {
-      setStageMessage(`Scrape failed: ${(error as Error).message}`);
+      const message = (error as Error).message;
+      setStageMessage(`Scrape failed: ${message}`);
+      toast.error("Scrape failed", message);
     } finally {
       setIsScraping(false);
     }
@@ -232,13 +283,13 @@ export function Stage0Downloader({
 
       const result = await window.gento.runStage(0, args);
       if (!result.ok) {
-        setStageMessage(
-          formatRuntimeError(
-            result.error.code,
-            result.error.message,
-            result.error.details,
-          ),
+        const message = formatRuntimeError(
+          result.error.code,
+          result.error.message,
+          result.error.details,
         );
+        setStageMessage(message);
+        toast.error("Download failed", message);
         setProgress(0);
         return;
       }
@@ -253,14 +304,19 @@ export function Stage0Downloader({
       if (complete) {
         setProgress(100);
         setLastOutputDir(complete.outputDir || outDir);
-        setStageMessage(
-          `Downloaded ${complete.downloadedChapters || selectedChapters.length} chapters to ${complete.outputDir || outDir}.`,
-        );
+        const downloadedCount = complete.downloadedChapters || selectedChapters.length;
+        const outputPath = complete.outputDir || outDir;
+        const message = `Downloaded ${downloadedCount} chapters to ${outputPath}.`;
+        setStageMessage(message);
+        toast.success("Download complete", message);
       } else {
         setStageMessage("Stage completed.");
+        toast.success("Download complete", "Stage completed.");
       }
     } catch (error) {
-      setStageMessage(`Download failed: ${(error as Error).message}`);
+      const message = (error as Error).message;
+      setStageMessage(`Download failed: ${message}`);
+      toast.error("Download failed", message);
       setProgress(0);
     } finally {
       setIsRunningStage(false);
@@ -276,7 +332,9 @@ export function Stage0Downloader({
     }
     const result = await window.gento.openPath(lastOutputDir);
     if (!result.ok) {
-      setStageMessage(`Failed to open folder: ${result.error.message}`);
+      const message = `Failed to open folder: ${result.error.message}`;
+      setStageMessage(message);
+      toast.error("Open folder failed", result.error.message);
     }
   };
 

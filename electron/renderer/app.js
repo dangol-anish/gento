@@ -31,6 +31,36 @@ async function runStageStub() {
   }
 }
 
+function registerStageEvents() {
+  window.gento.onStageEvent((payload) => {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+
+    if (payload.type === "progress") {
+      statusNode.textContent = payload.message || `Running stage ${payload.stage}`;
+      setStatusChip("status-running", "Running");
+      return;
+    }
+
+    if (payload.type === "complete") {
+      statusNode.textContent = payload.message || `Stage ${payload.stage} complete.`;
+      setStatusChip("status-success", "Success");
+      return;
+    }
+
+    if (payload.type === "error") {
+      statusNode.textContent = `[Error] ${payload.message}`;
+      setStatusChip("status-error", "Error");
+      return;
+    }
+
+    if (payload.type === "log") {
+      statusNode.textContent = payload.message;
+    }
+  });
+}
+
 runButton.addEventListener("click", () => {
   runStageStub();
 });

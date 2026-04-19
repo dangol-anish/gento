@@ -1,13 +1,19 @@
 export type Chapter = { name: string; url: string };
 
 export type StageEvent = {
-  type: "progress" | "complete" | "error";
-  stage: number;
+  type: "progress" | "complete" | "error" | "log";
+  stage?: number;
   percent?: number;
   message?: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
   chapters?: Chapter[];
   output_dir?: string;
   downloaded_chapters?: number;
+  storyboard_path?: string;
 };
 
 export function extractChaptersFromEvents(events: StageEvent[]): Chapter[] {

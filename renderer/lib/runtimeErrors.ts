@@ -21,6 +21,12 @@ export function formatRuntimeError(code: string, message: string, details?: unkn
     if (stderr.includes("No module named 'PIL'")) {
       return "Python dependency missing: pillow. Run `python3 -m pip install -r requirements.txt` and retry.";
     }
+    if (stderr.includes("No module named 'transformers'")) {
+      return "Python dependency missing: transformers. Run `python3 -m pip install -r requirements.txt` and retry.";
+    }
+    if (stderr.includes("No module named 'torch'")) {
+      return "Python dependency missing: torch. Run `python3 -m pip install -r requirements.txt` and retry.";
+    }
     if (stderr.includes("No module named")) {
       return `Python dependency missing. Run \`python3 -m pip install -r requirements.txt\` and retry.\n${stderr
         .split("\n")

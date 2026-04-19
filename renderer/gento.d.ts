@@ -11,14 +11,20 @@ type GentoFailure = { ok: false; data: null; error: GentoError };
 type GentoResult<T> = GentoSuccess<T> | GentoFailure;
 
 type StageEvent = {
-  type: "progress" | "complete" | "error";
-  stage: number;
+  type: "progress" | "complete" | "error" | "log";
+  stage?: number;
   percent?: number;
   message?: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
   chapters?: Array<{ name: string; url: string }>;
   manga_metadata?: Record<string, unknown>;
   output_dir?: string;
   downloaded_chapters?: number;
+  storyboard_path?: string;
 };
 
 declare global {
@@ -35,6 +41,7 @@ declare global {
         }>
       >;
       openPath: (path: string) => Promise<GentoResult<{ path: string }>>;
+      onStageEvent: (callback: (payload: StageEvent) => void) => () => void;
     };
   }
 }

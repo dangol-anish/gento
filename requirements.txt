@@ -1,3 +1,10 @@
 httpx
 beautifulsoup4
 pillow
+transformers
+torch
+einops
+pytorch_metric_learning
+timm
+matplotlib
+shapely

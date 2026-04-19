@@ -47,6 +47,35 @@ describe("Stage0Downloader", () => {
     expect(container.textContent).toContain("Scrape manga to load chapter list.");
     expect(container.textContent).toContain("Download Selected");
   });
+
+  it("updates progress and stage status from live stage events", async () => {
+    const onStageEvent = vi.fn((callback) => {
+      callback({
+        type: "progress",
+        stage: 0,
+        percent: 37,
+        message: "Downloading chapters...",
+      });
+      callback({
+        type: "complete",
+        stage: 0,
+        output_dir: "./downloads",
+        downloaded_chapters: 2,
+      });
+      return () => {};
+    });
+
+    (window as any).gento = {
+      onStageEvent,
+    };
+
+    const { container } = renderIntoDocument(<Stage0Downloader />);
+
+    await tick();
+
+    expect(container.textContent).toContain("Stage 0 complete.");
+    expect(container.textContent).toContain("100%");
+  });
 });
 
 describe("ChapterPicker", () => {

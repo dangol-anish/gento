@@ -10,3 +10,6 @@ __pycache__/
 # Next.js build output (renderer)
 renderer/.next/
 renderer/out/
+
+# TypeScript incremental build info
+*.tsbuildinfo

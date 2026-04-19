@@ -1068,11 +1068,11 @@ Ollama has native installers for all three platforms. The Electron app should de
 
 On first launch, Electron runs a prerequisite check and shows a setup screen if anything is missing:
 
-| Requirement       | Check                                 | Install Link                      |
-| ----------------- | ------------------------------------- | --------------------------------- |
-| Python 3.10+      | `python --version`                    | python.org                        |
-| pip packages      | `pip show httpx pillow transformers`  | `pip install -r requirements.txt` |
-| Ollama            | `GET http://localhost:11434/api/tags` | ollama.com                        |
+| Requirement       | Check                                         | Install Link                      |
+| ----------------- | --------------------------------------------- | --------------------------------- |
+| Python 3.10+      | `python --version`                            | python.org                        |
+| pip packages      | `pip show httpx pillow transformers torch`    | `pip install -r requirements.txt` |
+| Ollama            | `GET http://localhost:11434/api/tags`         | ollama.com                        |
 | gemma3:4b model   | check models list from Ollama         | `ollama pull gemma3:4b`           |
 | ffmpeg            | `ffmpeg -version`                     | ffmpeg.org                        |
 | Anthropic API key | key present in config                 | anthropic.com                     |

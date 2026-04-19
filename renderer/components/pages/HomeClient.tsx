@@ -9,6 +9,7 @@ import {
   Stage0Downloader,
   type Stage0Session,
 } from "@/components/stage0/Stage0Downloader";
+import { Stage1Extractor } from "@/components/stage1/Stage1Extractor";
 import { SessionCard } from "@/components/session/SessionCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,10 +101,19 @@ export default function HomeClient() {
               </Card>
 
               <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px] lg:flex-1 lg:min-h-0">
-                <Stage0Downloader
-                  outDir="./downloads"
-                  onSessionUpdate={setSessionState}
-                />
+                {activeStage === 0 ? (
+                  <Stage0Downloader outDir="./downloads" onSessionUpdate={setSessionState} />
+                ) : activeStage === 1 ? (
+                  <Stage1Extractor outDir="./output" onSessionUpdate={setSessionState} />
+                ) : (
+                  <div className="space-y-4 rounded-3xl border border-border/60 bg-background/80 p-6 text-sm text-muted-foreground">
+                    <h2 className="text-base font-semibold text-foreground">Stage {activeStage} is not implemented yet</h2>
+                    <p>
+                      The pipeline stage is recognized, but the UI and processing logic for this stage
+                      are still pending.
+                    </p>
+                  </div>
+                )}
 
                 <SessionCard
                   activeStage={STAGES[activeStage]}

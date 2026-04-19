@@ -41,6 +41,14 @@ function validateRunStagePayload(payload) {
  * Stage execution is stubbed for now and will be replaced
  * with Python process orchestration in the next step.
  */
+function sendStageEvent(event, payload) {
+  try {
+    event.sender.send("stage-event", payload);
+  } catch {
+    // Ignore failures while sending progress events.
+  }
+}
+
 function registerStageIpcHandlers() {
   ipcMain.handle("open-path", async (_event, payload) => {
     if (!payload || typeof payload !== "object" || typeof payload.path !== "string") {
@@ -98,11 +106,18 @@ function registerStageIpcHandlers() {
     }
 
     const { stage, args } = payload;
+    console.log(`[run-stage] starting stage ${stage} with args: ${JSON.stringify(args)}`);
 
     try {
       if (stage === 0) {
         const pythonCmd = process.platform === "win32" ? "python" : "python3";
-        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.downloader.scraper", ...args]);
+        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.downloader.scraper", ...args], _event);
+        return runResult;
+      }
+
+      if (stage === 1) {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.extract_chapter", ...args], _event);
         return runResult;
       }
 
@@ -121,7 +136,7 @@ function registerStageIpcHandlers() {
   });
 }
 
-function runPythonCommand(command, commandArgs) {
+function runPythonCommand(command, commandArgs, ipcEvent) {
   return new Promise((resolve) => {
     const proc = spawn(command, commandArgs, {
       cwd: process.cwd(),
@@ -135,17 +150,28 @@ function runPythonCommand(command, commandArgs) {
       const text = chunk.toString();
       const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
       for (const line of lines) {
+        console.log(`[run-stage] python stdout: ${line}`);
         try {
           const parsed = JSON.parse(line);
           events.push(parsed);
+          if (ipcEvent) {
+            sendStageEvent(ipcEvent, parsed);
+          }
         } catch (_) {
-          // Ignore non-JSON lines from python stage stdout.
+          if (ipcEvent) {
+            sendStageEvent(ipcEvent, { type: "log", message: line });
+          }
         }
       }
     });
 
     proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+      for (const line of lines) {
+        console.error(`[run-stage] python stderr: ${line}`);
+      }
     });
 
     proc.on("close", (code) => {

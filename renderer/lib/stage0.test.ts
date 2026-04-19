@@ -4,11 +4,12 @@ import {
   extractChaptersFromEvents,
   extractCompleteSummary,
   extractLastPercent,
+  type StageEvent,
 } from "./stage0";
 
 describe("stage0 helpers", () => {
   it("extracts chapters from complete events", () => {
-    const events = [
+    const events: StageEvent[] = [
       { type: "progress", stage: 1, percent: 5 },
       {
         type: "complete",
@@ -23,7 +24,7 @@ describe("stage0 helpers", () => {
   });
 
   it("returns the last progress percent", () => {
-    const events = [
+    const events: StageEvent[] = [
       { type: "progress", stage: 1, percent: 10 },
       { type: "progress", stage: 2, percent: 80 },
       { type: "complete", stage: 2 },
@@ -33,11 +34,13 @@ describe("stage0 helpers", () => {
   });
 
   it("returns null when no progress is present", () => {
-    expect(extractLastPercent([{ type: "complete", stage: 0 }])).toBeNull();
+    expect(
+      extractLastPercent([{ type: "complete", stage: 0 } as StageEvent]),
+    ).toBeNull();
   });
 
   it("extracts complete summary from the first complete event", () => {
-    const events = [
+    const events: StageEvent[] = [
       { type: "progress", stage: 0, percent: 20 },
       {
         type: "complete",

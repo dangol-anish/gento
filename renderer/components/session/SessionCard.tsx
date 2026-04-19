@@ -108,10 +108,10 @@ export function SessionCard({ activeStage, session }: SessionCardProps) {
         <div className="rounded-2xl border border-border/50 bg-background/80 p-3">
           <div className="flex items-center gap-2 text-sm">
             <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium text-foreground">Manga URL</span>
+            <span className="font-medium text-foreground">Input path</span>
           </div>
           <p className="truncate text-sm text-muted-foreground">
-            {session.mangaUrl || "No manga URL provided"}
+            {session.mangaUrl || "No input path provided"}
           </p>
         </div>
       </CardContent>
