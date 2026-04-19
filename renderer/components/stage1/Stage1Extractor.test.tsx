@@ -117,7 +117,7 @@ describe("Stage1Extractor", () => {
     expect(container.textContent).toContain("Please provide the downloaded images folder.");
 
     act(() => {
-      setReactInputValue(imagesInput!, "./downloads");
+      setReactInputValue(imagesInput!, "./downloads/My Manga/Chapter 1");
       setReactInputValue(chapterInput!, "");
     });
     await tick();
@@ -142,10 +142,19 @@ describe("Stage1Extractor", () => {
     window.gento = { runStage };
 
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="output" />);
+    const imagesInput = container.querySelector('input[placeholder="./downloads/Your Manga/Chapter 1"]') as
+      | HTMLInputElement
+      | null;
     const runButton = Array.from(container.querySelectorAll("button")).find(
       (btn) => btn.textContent?.includes("Run Stage 1"),
     ) as HTMLButtonElement | undefined;
     expect(runButton).toBeTruthy();
+    expect(imagesInput).not.toBeNull();
+
+    act(() => {
+      setReactInputValue(imagesInput!, "./downloads/My Manga/Chapter 1");
+    });
+    await tick();
 
     await act(async () => {
       runButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -172,9 +181,18 @@ describe("Stage1Extractor", () => {
     };
 
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="output" />);
+    const imagesInput = container.querySelector('input[placeholder="./downloads/Your Manga/Chapter 1"]') as
+      | HTMLInputElement
+      | null;
     const runButton = Array.from(container.querySelectorAll("button")).find(
       (btn) => btn.textContent?.includes("Run Stage 1"),
     ) as HTMLButtonElement | undefined;
+    expect(imagesInput).not.toBeNull();
+
+    act(() => {
+      setReactInputValue(imagesInput!, "./downloads/My Manga/Chapter 1");
+    });
+    await tick();
 
     await act(async () => {
       runButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));

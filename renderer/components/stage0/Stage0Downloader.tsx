@@ -36,11 +36,13 @@ export type Stage0Session = {
 type Props = {
   outDir?: string;
   onSessionUpdate?: (session: Stage0Session) => void;
+  onDownloadComplete?: (chapterDirs: string[]) => void;
 };
 
 export function Stage0Downloader({
   outDir = "./downloads",
   onSessionUpdate,
+  onDownloadComplete,
 }: Props) {
   const toast = useToast();
   const [progress, setProgress] = useState(0);
@@ -303,12 +305,20 @@ export function Stage0Downloader({
       const complete = extractCompleteSummary(events as any);
       if (complete) {
         setProgress(100);
-        setLastOutputDir(complete.outputDir || outDir);
+        const chapterDirs = complete.chapterDirs || [];
+        if (chapterDirs.length === 1) {
+          setLastOutputDir(chapterDirs[0]);
+        } else {
+          setLastOutputDir(complete.outputDir || outDir);
+        }
         const downloadedCount = complete.downloadedChapters || selectedChapters.length;
         const outputPath = complete.outputDir || outDir;
         const message = `Downloaded ${downloadedCount} chapters to ${outputPath}.`;
         setStageMessage(message);
         toast.success("Download complete", message);
+        if (chapterDirs.length > 0) {
+          onDownloadComplete?.(chapterDirs);
+        }
       } else {
         setStageMessage("Stage completed.");
         toast.success("Download complete", "Stage completed.");

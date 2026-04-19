@@ -24,6 +24,7 @@ type StageEvent = {
   manga_metadata?: Record<string, unknown>;
   output_dir?: string;
   downloaded_chapters?: number;
+  chapter_dirs?: string[];
   storyboard_path?: string;
 };
 

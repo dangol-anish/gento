@@ -32,9 +32,10 @@ export type Stage1Session = {
 type Props = {
   outDir?: string;
   onSessionUpdate?: (session: Stage1Session) => void;
+  recentChapterDirs?: string[];
 };
 
-export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props) {
+export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentChapterDirs = [] }: Props) {
   const toast = useToast();
   const [imageFolder, setImageFolder] = useState("./downloads");
   const [chapterId, setChapterId] = useState("chapter_1");
@@ -64,6 +65,15 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props)
   useEffect(() => {
     onSessionUpdate?.(sessionState);
   }, [onSessionUpdate, sessionState]);
+
+  useEffect(() => {
+    if (imageFolder.trim() !== "./downloads") {
+      return;
+    }
+    if (recentChapterDirs.length === 1) {
+      setImageFolder(recentChapterDirs[0]);
+    }
+  }, [imageFolder, recentChapterDirs]);
 
   useEffect(() => {
     if (!window.gento?.onStageEvent) {
@@ -129,6 +139,16 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props)
       setStageMessage("Please provide the downloaded images folder.");
       return;
     }
+    if (imageFolder.trim() === "./downloads") {
+      setStageMessage(
+        "Please select a specific downloaded chapter folder (not the downloads root).",
+      );
+      toast.error(
+        "Select a chapter folder",
+        "Stage 1 expects a single chapter folder containing page_*.jpg files.",
+      );
+      return;
+    }
     if (!chapterId.trim()) {
       setStageMessage("Please provide a chapter ID.");
       return;
@@ -161,8 +181,6 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props)
         const message = formatRuntimeError(result.error.code, result.error.message, result.error.details);
         setStageMessage(message);
         toast.error("Extraction failed", message);
-        setIsRunningStage(false);
-        setHasStageStarted(false);
         setProgress(0);
         return;
       }
@@ -180,9 +198,8 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props)
         setProgress(100);
         setStageMessage(`Stage 1 complete: ${complete.storyboardPath}`);
         toast.success("Stage 1 complete", `Wrote ${complete.storyboardPath}`);
-        setIsRunningStage(false);
-        setHasStageStarted(false);
       } else {
+        setProgress(100);
         setStageMessage("Stage 1 extraction finished.");
         toast.success("Stage 1 complete", "Stage 1 extraction finished.");
       }
@@ -191,6 +208,7 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props)
       setStageMessage(`Extraction failed: ${message}`);
       toast.error("Extraction failed", message);
       setProgress(0);
+    } finally {
       setIsRunningStage(false);
       setHasStageStarted(false);
     }
@@ -219,6 +237,39 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props)
       </CardHeader>
 
       <CardContent className="space-y-5 p-5 pt-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
+        {recentChapterDirs.length > 0 ? (
+          <div className="space-y-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Recent downloads
+            </label>
+            <div className="relative">
+              <select
+                value={recentChapterDirs.includes(imageFolder) ? imageFolder : ""}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (next) setImageFolder(next);
+                }}
+                className="glass-interactive h-10 w-full appearance-none rounded-xl border px-3 pr-9 text-sm text-foreground outline-none"
+              >
+                <option value="" disabled>
+                  Select a chapter folder…
+                </option>
+                {recentChapterDirs.map((dir) => (
+                  <option key={dir} value={dir}>
+                    {dir}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                <FiChevronDown />
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Stage 1 should run on a single chapter folder (pages only), not the downloads root.
+            </p>
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Images folder

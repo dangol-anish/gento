@@ -1,6 +1,8 @@
 const { ipcMain, shell } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
+const http = require("http");
+const https = require("https");
 const {
   ErrorCodes,
   createSuccess,
@@ -47,6 +49,167 @@ function sendStageEvent(event, payload) {
   } catch {
     // Ignore failures while sending progress events.
   }
+}
+
+function parseFlagValue(args, flag) {
+  const index = args.indexOf(flag);
+  if (index === -1) {
+    return null;
+  }
+  const value = args[index + 1];
+  return typeof value === "string" ? value : null;
+}
+
+function isLocalOllamaHost(host) {
+  try {
+    const url = new URL(host);
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+function httpGetJson(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    const lib = parsed.protocol === "https:" ? https : http;
+    const req = lib.request(
+      parsed,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk) => {
+          body += chunk.toString();
+        });
+        res.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            resolve({ status: res.statusCode || 0, data });
+          } catch (error) {
+            reject(error);
+          }
+        });
+      },
+    );
+
+    req.on("error", (error) => reject(error));
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error("Request timed out"));
+    });
+    req.end();
+  });
+}
+
+async function waitForOllama(host, timeoutMs = 8000) {
+  const url = host.replace(/\/+$/, "") + "/api/tags";
+  const start = Date.now();
+  // Poll quickly for a short period; Ollama may need a moment to start listening.
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const result = await httpGetJson(url, 1200);
+      if (result && typeof result.status === "number" && result.status >= 200 && result.status < 500) {
+        return true;
+      }
+    } catch {
+      // ignore and retry
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
+
+async function ensureOllamaRunning(host, ipcEvent, stage) {
+  if (!isLocalOllamaHost(host)) {
+    // For remote hosts, we never try to start the server.
+    const ok = await waitForOllama(host, 1500);
+    if (!ok && ipcEvent) {
+      sendStageEvent(ipcEvent, {
+        type: "log",
+        stage,
+        message: `Ollama is not reachable at ${host}. Start it (or fix host) and try again.`,
+      });
+    }
+    return ok;
+  }
+
+  const reachable = await waitForOllama(host, 1200);
+  if (reachable) {
+    if (ipcEvent) {
+      sendStageEvent(ipcEvent, { type: "log", stage, message: `Ollama is reachable at ${host}.` });
+    }
+    return true;
+  }
+
+  if (ipcEvent) {
+    sendStageEvent(ipcEvent, { type: "log", stage, message: "Ollama not running; attempting to start `ollama serve`..." });
+  }
+
+  try {
+    // Quick sanity check (useful to debug missing PATH in packaged apps).
+    try {
+      const versionProbe = spawn("ollama", ["--version"], { stdio: "pipe" });
+      let out = "";
+      versionProbe.stdout?.on("data", (chunk) => {
+        out += chunk.toString();
+      });
+      versionProbe.on("close", (code) => {
+        if (ipcEvent) {
+          sendStageEvent(ipcEvent, {
+            type: "log",
+            stage,
+            message: `Ollama probe exited ${code}: ${(out || "").trim() || "(no stdout)"}`,
+          });
+        }
+      });
+      versionProbe.on("error", (error) => {
+        if (ipcEvent) {
+          sendStageEvent(ipcEvent, {
+            type: "log",
+            stage,
+            message: `Ollama probe failed: ${error?.message || String(error)}`,
+          });
+        }
+      });
+    } catch {
+      // ignore probe issues; attempt serve anyway
+    }
+
+    const proc = spawn("ollama", ["serve"], {
+      detached: true,
+      stdio: "ignore",
+      shell: process.platform === "win32",
+    });
+    proc.unref();
+  } catch (error) {
+    if (ipcEvent) {
+      sendStageEvent(ipcEvent, {
+        type: "log",
+        stage,
+        message: `Failed to spawn 'ollama serve': ${error?.message || String(error)}`,
+      });
+    }
+    return false;
+  }
+
+  const ok = await waitForOllama(host, 8000);
+  if (!ok && ipcEvent) {
+    sendStageEvent(ipcEvent, {
+      type: "log",
+      stage,
+      message: `Ollama did not become ready at ${host}. Make sure Ollama is installed and running.`,
+    });
+  }
+  return ok;
 }
 
 function registerStageIpcHandlers() {
@@ -111,13 +274,43 @@ function registerStageIpcHandlers() {
     try {
       if (stage === 0) {
         const pythonCmd = process.platform === "win32" ? "python" : "python3";
-        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.downloader.scraper", ...args], _event);
+        const runResult = await runPythonCommand(
+          pythonCmd,
+          ["-m", "scripts.downloader.scraper", ...args],
+          _event,
+          stage,
+        );
         return runResult;
       }
 
       if (stage === 1) {
         const pythonCmd = process.platform === "win32" ? "python" : "python3";
-        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.extract_chapter", ...args], _event);
+        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.extract_chapter", ...args], _event, stage);
+        return runResult;
+      }
+
+      if (stage === 2) {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const sceneProvider = parseFlagValue(args, "--scene-provider");
+        const ollamaHost = parseFlagValue(args, "--ollama-host") || "http://127.0.0.1:11434";
+        if (_event) {
+          sendStageEvent(_event, {
+            type: "log",
+            stage: 2,
+            message: `Stage 2 preflight: provider=${sceneProvider || "(missing)"} host=${ollamaHost}`,
+          });
+        }
+        if (sceneProvider === "ollama") {
+          const ready = await ensureOllamaRunning(ollamaHost, _event, 2);
+          if (!ready) {
+            return createError(
+              ErrorCodes.STAGE_EXECUTION_FAILED,
+              "Ollama is not running or reachable.",
+              { host: ollamaHost },
+            );
+          }
+        }
+        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.add_scenes", ...args], _event, stage);
         return runResult;
       }
 
@@ -136,7 +329,7 @@ function registerStageIpcHandlers() {
   });
 }
 
-function runPythonCommand(command, commandArgs, ipcEvent) {
+function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null) {
   return new Promise((resolve) => {
     const proc = spawn(command, commandArgs, {
       cwd: process.cwd(),
@@ -159,7 +352,7 @@ function runPythonCommand(command, commandArgs, ipcEvent) {
           }
         } catch (_) {
           if (ipcEvent) {
-            sendStageEvent(ipcEvent, { type: "log", message: line });
+            sendStageEvent(ipcEvent, { type: "log", stage: stageHint, message: line });
           }
         }
       }
@@ -171,6 +364,9 @@ function runPythonCommand(command, commandArgs, ipcEvent) {
       const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
       for (const line of lines) {
         console.error(`[run-stage] python stderr: ${line}`);
+        if (ipcEvent) {
+          sendStageEvent(ipcEvent, { type: "log", stage: stageHint, message: line });
+        }
       }
     });
 

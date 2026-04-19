@@ -140,6 +140,7 @@ async def _run_download(args: argparse.Namespace) -> str:
         output_dir=args.out,
         manga_title=manga_title,
         downloaded_chapters=len(selected_chapters),
+        chapter_dirs=[dir_path for _chapter, dir_path in chapter_dirs],
     )
     return args.out
 

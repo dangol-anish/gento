@@ -13,6 +13,7 @@ export type StageEvent = {
   chapters?: Chapter[];
   output_dir?: string;
   downloaded_chapters?: number;
+  chapter_dirs?: string[];
   storyboard_path?: string;
 };
 
@@ -33,6 +34,7 @@ export function extractCompleteSummary(events: StageEvent[]) {
   return {
     outputDir: completeEvent.output_dir,
     downloadedChapters: completeEvent.downloaded_chapters,
+    chapterDirs: completeEvent.chapter_dirs,
   };
 }
 
@@ -63,4 +65,3 @@ export function buildStage0Args(params: {
 
   return args;
 }
-
