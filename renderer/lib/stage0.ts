@@ -15,6 +15,7 @@ export type StageEvent = {
   downloaded_chapters?: number;
   chapter_dirs?: string[];
   storyboard_path?: string;
+  recap_path?: string;
 };
 
 export function extractChaptersFromEvents(events: StageEvent[]): Chapter[] {

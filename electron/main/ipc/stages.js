@@ -314,6 +314,28 @@ function registerStageIpcHandlers() {
         return runResult;
       }
 
+      if (stage === 3) {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const ollamaHost = parseFlagValue(args, "--ollama-host") || "http://127.0.0.1:11434";
+        if (_event) {
+          sendStageEvent(_event, {
+            type: "log",
+            stage: 3,
+            message: `Stage 3 preflight: host=${ollamaHost}`,
+          });
+        }
+        const ready = await ensureOllamaRunning(ollamaHost, _event, 3);
+        if (!ready) {
+          return createError(
+            ErrorCodes.STAGE_EXECUTION_FAILED,
+            "Ollama is not running or reachable.",
+            { host: ollamaHost },
+          );
+        }
+        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.make_panel_recaps", ...args], _event, stage);
+        return runResult;
+      }
+
       return createSuccess({
         stage,
         args,
