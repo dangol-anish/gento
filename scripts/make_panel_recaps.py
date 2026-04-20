@@ -282,8 +282,43 @@ def _run_page_mode(
     recap_script_path = final_root / "recap_script.txt"
 
     if recap_pages_path.exists() and not args.overwrite:
-        emit("progress", stage=3, message="recap_pages.json already exists; skipping (pass --overwrite).", percent=100)
-        emit("complete", stage=3, recap_path=str(recap_pages_path))
+        existing_size = 0
+        try:
+            existing_size = int(recap_pages_path.stat().st_size)
+        except Exception:
+            existing_size = 0
+
+        existing_meta: dict[str, Any] | None = None
+        try:
+            existing_doc = json.loads(recap_pages_path.read_text(encoding="utf-8"))
+            if isinstance(existing_doc, dict) and isinstance(existing_doc.get("pages"), list):
+                existing_meta = {
+                    "generated_at": existing_doc.get("generated_at"),
+                    "model": existing_doc.get("model"),
+                    "provider": existing_doc.get("provider"),
+                    "mode": existing_doc.get("mode"),
+                    "pages_count": len(existing_doc.get("pages") or []),
+                    "storyboard": existing_doc.get("storyboard"),
+                }
+        except Exception:
+            existing_meta = None
+
+        if existing_meta is None:
+            raise stage_failed(
+                "recap_pages.json exists but is invalid; refusing to skip.",
+                {"path": str(recap_pages_path), "hint": "Delete the file or rerun with --overwrite."},
+            )
+
+        emit(
+            "progress",
+            stage=3,
+            message=(
+                f"recap_pages.json already exists ({existing_size} bytes); skipping "
+                f"(enable Overwrite / pass --overwrite to regenerate)."
+            ),
+            percent=100,
+        )
+        emit("complete", stage=3, recap_path=str(recap_pages_path), skipped=True, existing=existing_meta)
         return recap_pages_path
 
     panels = doc.get("panels") or []
@@ -561,7 +596,17 @@ def _run_stage() -> None:
     final_root = storyboard_path.parent
     out_root = final_root.parent
 
-    emit("progress", stage=3, message="Preparing recap generation...", percent=1)
+    output_hint = str(final_root / ("panel_recaps.jsonl" if args.mode == "panel" else "recap_pages.json"))
+    emit(
+        "progress",
+        stage=3,
+        message=(
+            "Preparing recap generation..."
+            f" mode={args.mode} overwrite={bool(args.overwrite)}"
+            f" output={output_hint}"
+        ),
+        percent=1,
+    )
     if args.mode == "panel":
         _run_panel_mode(args=args, storyboard_path=storyboard_path, doc=doc, out_root=out_root)
         return
@@ -574,4 +619,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

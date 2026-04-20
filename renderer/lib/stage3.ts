@@ -48,6 +48,6 @@ export function extractCompleteSummary(events: StageEvent[]) {
   if (!completeEvent) return null;
   return {
     recapPath: (completeEvent as any).recap_path as string | undefined,
+    skipped: Boolean((completeEvent as any).skipped),
   };
 }
-
