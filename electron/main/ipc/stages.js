@@ -394,21 +394,6 @@ function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null) {
 
     proc.on("close", (code) => {
       if (code === 0) {
-        if (typeof stageHint === "number") {
-          const hasComplete = events.some(
-            (evt) => evt && evt.type === "complete" && (typeof evt.stage !== "number" || evt.stage === stageHint),
-          );
-          if (!hasComplete) {
-            resolve(
-              createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Stage completed without a complete event.", {
-                stage: stageHint,
-                stderr: stderr || null,
-                events,
-              }),
-            );
-            return;
-          }
-        }
         resolve(createSuccess({ events }));
         return;
       }

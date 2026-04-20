@@ -102,15 +102,7 @@ export function Stage3RecapGenerator({ onSessionUpdate }: Props) {
         const recapPath = payload.recap_path ? payload.recap_path : "";
         setProgress(100);
         setStageMessage(payload.message ?? "Stage 3 complete.");
-        if (payload.skipped) {
-          setStageMessage("Stage 3 skipped (outputs already exist). Enable Overwrite to regenerate.");
-          toast.push({
-            title: "Stage 3 skipped",
-            message: recapPath ? `Already exists: ${recapPath}` : "Outputs already exist. Enable Overwrite to regenerate.",
-          });
-        } else {
-          toast.success("Stage 3 complete", recapPath ? `Wrote ${recapPath}` : "Recap outputs written.");
-        }
+        toast.success("Stage 3 complete", recapPath ? `Wrote ${recapPath}` : "Recap outputs written.");
         setIsRunningStage(false);
         setHasStageStarted(false);
         return;
@@ -180,13 +172,8 @@ export function Stage3RecapGenerator({ onSessionUpdate }: Props) {
       const complete = extractCompleteSummary(events);
       if (complete?.recapPath) {
         setProgress(100);
-        if (complete.skipped) {
-          setStageMessage(`Stage 3 skipped (already exists): ${complete.recapPath}`);
-          toast.push({ title: "Stage 3 skipped", message: `Enable Overwrite to regenerate: ${complete.recapPath}` });
-        } else {
-          setStageMessage(`Stage 3 complete: ${complete.recapPath}`);
-          toast.success("Stage 3 complete", `Wrote ${complete.recapPath}`);
-        }
+        setStageMessage(`Stage 3 complete: ${complete.recapPath}`);
+        toast.success("Stage 3 complete", `Wrote ${complete.recapPath}`);
         return;
       }
 
@@ -355,3 +342,4 @@ export function Stage3RecapGenerator({ onSessionUpdate }: Props) {
     </Card>
   );
 }
+
