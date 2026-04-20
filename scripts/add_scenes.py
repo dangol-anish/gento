@@ -186,14 +186,17 @@ def _normalize_tags(values: Any) -> list[str]:
 def _build_page_prompt(*, chapter_context: str, ocr_text: str) -> str:
     rules = (
         "You are a manga page scene analyst.\n"
-        "Given a full manga page image, write a rich 2-4 sentence narrative description of what happens on the page.\n"
+        "Given a full manga page image, write a plain 2-4 sentence description of what happens.\n"
         "Then provide 4-10 semantic tags.\n"
         "Return ONLY valid JSON with this shape:\n"
         '{"caption": "2-4 sentences", "tags": ["4-10 short lowercase tags"]}\n'
         "Rules:\n"
-        "- Focus on visible actions/emotions and narrative beats.\n"
-        "- Use OCR/dialogue only as a hint; do not invent unseen details.\n"
+        "- Describe only what is clearly visible in the image. If something is unclear, skip it.\n"
+        "- Never use quotation marks of any kind. Paraphrase all dialogue into plain description.\n"
+        "- Never invent character names, locations, or events not visible in the image.\n"
+        "- If you are unsure what is happening, write a vague but accurate description rather than guessing.\n"
         "- Tags must be short (1-3 words), lowercase, no duplicates.\n"
+        "- Output only the JSON object. Do not add any explanation or commentary outside the JSON.\n"
     )
     ctx = chapter_context.strip()
     parts = [rules]
@@ -415,7 +418,7 @@ def _run_stage() -> None:
                     prompt=page_prompt,
                     image_b64=page_image_b64,
                     max_tokens=int(args.ollama_caption_tokens),
-                    temperature=0.2,
+                    temperature=0.0,
                 )
             except Exception as exc:  # noqa: BLE001
                 raise stage_failed(
@@ -479,7 +482,7 @@ def _run_stage() -> None:
                         ),
                         image_b64=None,
                         max_tokens=int(args.ollama_tags_tokens),
-                        temperature=0.2,
+                        temperature=0.0,
                     )
                 except Exception as exc:  # noqa: BLE001
                     raise stage_failed(

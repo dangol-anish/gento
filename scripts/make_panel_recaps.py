@@ -241,19 +241,19 @@ def _prompt_for_page(
         evidence = evidence[:12000]
 
     return (
-        "You are a manga narrator writing a YouTube video recap script.\n"
-        f"Write {sentences_min} to {sentences_max} sentences for THIS page.\n\n"
+        "You are a manga narrator writing a YouTube recap script.\n"
+        f"Write {sentences_min} to {sentences_max} sentences describing what happens on this page.\n\n"
         "Rules:\n"
+        "- Write only what the evidence clearly supports. If the evidence is confusing or contradictory, write a vague but coherent sentence that fits the surrounding context.\n"
+        "- Never use quotation marks of any kind. Convert all dialogue into plain third-person description.\n"
+        "- Never invent character names, locations, or events not mentioned in the evidence.\n"
+        "- Never include meta-commentary, self-references, or anything that sounds like you are describing your own output.\n"
         "- Maintain continuity with the previous recap context.\n"
-        "- Use ONLY the provided evidence.\n"
-        "- Do not invent character names or plot facts not supported by evidence.\n"
-        "- Do not quote dialogue with quotation marks; paraphrase instead.\n"
-        "- Write in simple, clear English.\n"
-        "- Output ONLY the recap text.\n\n"
+        "- Write in clear, punchy English. Output ONLY the recap sentences, nothing else.\n\n"
         f"Previous page recap context:\n{prev_context.strip() or '(none)'}\n\n"
         f"Page index: {page_idx}\n\n"
-        f"Page narrative from Stage 2 (if available):\n{page_caption.strip() or '(none)'}\n\n"
-        "Panels evidence:\n"
+        f"Page narrative summary:\n{page_caption.strip() or '(none)'}\n\n"
+        "Panel evidence:\n"
         + (evidence or "(none)")
         + "\n"
     )
