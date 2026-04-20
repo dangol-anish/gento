@@ -472,107 +472,85 @@ stage:error     { stage: 3, message: "Error text" }
 
 ---
 
-### Stage 4 — Script Refinement (Claude API)
+### Stage 4 — Script Refinement (Claude / Gemini API)
 
 **File:** `scripts/refine_script.py`
 
-**Purpose:** Send the raw recap draft to Claude for refinement into a polished, engaging video script. The user reviews and optionally edits Claude's output in the UI before approving.
+**Purpose:** Convert the Stage 3 recap into **one narration sentence per panel**, keeping strict alignment with the extracted panel list. This is the last stage currently implemented in the Electron UI.
 
-**This stage replaces the manual workflow of copy-pasting drafts into claude.ai.**
+**Input:** `output/final/recap_pages.json` (from Stage 3)
 
-**Input:** `out_ch001/final/recap_pages.json` (from Stage 3)
+**Output:** `output/final/recap_pages_with_sentences.json`
 
-**Output:** `out_ch001/final/final_script.json`
+#### What Stage 4 Produces
 
-#### Python Script
+Stage 4 writes a JSON doc with the same pages/panels as Stage 3, but adds a `sentence` field per panel:
 
-````python
-# scripts/refine_script.py
-import anthropic, json, sys, argparse
-
-def refine_script(recap_path: str, output_path: str, system_prompt: str = None):
-    with open(recap_path) as f:
-        recap = json.load(f)
-
-    raw_script = recap.get("raw_script", "")
-
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from environment
-
-    default_system = """You are a professional manga video script editor.
-You will receive a raw AI-generated recap of a manga chapter.
-Your job is to refine it into a polished, engaging video narration script.
-
-Rules:
-- Keep the narrative faithful to the source material
-- Write in an engaging, clear style suitable for YouTube narration
-- Maintain consistent pacing — roughly 2–4 sentences per page
-- Do not invent plot details not present in the input
-- Return ONLY a JSON object in this format:
+```json
 {
+  "mode": "page",
   "pages": [
     {
       "page_idx": 0,
-      "sentences": ["Sentence one.", "Sentence two."]
+      "recap": "Page-level recap from Stage 3...",
+      "panels": [
+        {
+          "sub_panel_idx": 0,
+          "panel_id": "p000_s00",
+          "crop_path": "output/panels/p000/s00/crop.png",
+          "sentence": "One narration sentence for this panel."
+        }
+      ]
     }
-  ],
-  "raw_script": "Full concatenated script..."
-}"""
+  ]
+}
+```
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4000,
-        system=system_prompt or default_system,
-        messages=[
-            {"role": "user", "content": f"Please refine this manga chapter recap into a polished video script:\n\n{raw_script}"}
-        ]
-    )
+#### How It Works
 
-    refined_text = response.content[0].text
-    # Strip any markdown fences if present
-    refined_text = refined_text.replace("```json", "").replace("```", "").strip()
-    refined = json.loads(refined_text)
-
-    # Merge panel references from storyboard back in
-    # (so Stage 5 knows which panel each sentence belongs to)
-    with open(output_path, "w") as f:
-        json.dump(refined, f, indent=2)
-
-    print(json.dumps({"status": "ok", "output": output_path}))
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("recap_path")
-    parser.add_argument("--out", required=True)
-    parser.add_argument("--system-prompt", default=None)
-    args = parser.parse_args()
-    refine_script(args.recap_path, args.out, args.system_prompt)
-````
+1. Load `recap_pages.json` and sort pages by `page_idx`.
+2. For each page, build a prompt that includes:
+   - the page recap
+   - per-panel evidence (scene captions if available + OCR transcript sidecars when present)
+3. Call the selected provider:
+   - **Anthropic** (`--provider anthropic`) using `ANTHROPIC_API_KEY`
+   - **Gemini** (`--provider gemini`) using `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+4. Validate provider JSON output and coerce it to **exactly one sentence per panel** (trim/pad as needed).
+5. Write `recap_pages_with_sentences.json` alongside the input recap.
 
 #### UI Flow for Stage 4
 
-This stage has a dedicated review screen in the Electron UI:
+The Electron UI provides:
 
-1. Run `refine_script.py` — show a loading spinner.
-2. When complete, display Claude's output in a **split view**:
-   - Left panel: original raw recap (read-only).
-   - Right panel: Claude's refined script (editable textarea).
-3. User can edit the refined script freely.
-4. "Approve & Continue" button saves the (possibly edited) content to `final_script.json` and proceeds to Stage 5.
-5. "Re-generate" button re-calls the API (with optional custom system prompt the user can type in).
+1. Run Stage 4 (Claude/Gemini) to generate `recap_pages_with_sentences.json`.
+2. Manual import mode to **upload a pre-made** `recap_pages_with_sentences.json` (must match the schema above).
 
 #### IPC Events
 
 ```
-stage:start     { stage: 4 }
-stage:complete  { stage: 4, refined_script: { ...json... } }
+stage:progress  { stage: 4, message: "Refining page 8/24...", percent: 33 }
+stage:complete  { stage: 4, refined_recap_path: "output/final/recap_pages_with_sentences.json" }
 stage:error     { stage: 4, message: "Error text" }
-stage:approved  { stage: 4, final_script_path: "out_ch001/final/final_script.json" }
 ```
 
-#### Environment Variable Required
+#### Environment Variables Required
+
+Anthropic:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Gemini:
+
+```
+GEMINI_API_KEY=...
+```
+
+or
+
+```
+GOOGLE_API_KEY=...
 ```
 
 Set in `config/defaults.json` or via the Settings screen in the UI.
@@ -581,7 +559,9 @@ Set in `config/defaults.json` or via the Settings screen in the UI.
 
 ### Stage 5 — Audio Generation
 
-**File:** `scripts/generate_audio.py`
+**Status:** Planned (not implemented in this repo/UI yet).
+
+**File:** `scripts/generate_audio.py` (planned)
 
 **Purpose:** Convert the final script into `.wav` audio files using local TTS (Kokoro). Track timing metadata per sentence and per panel.
 

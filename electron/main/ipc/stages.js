@@ -1,5 +1,6 @@
-const { ipcMain, shell } = require("electron");
+const { app, ipcMain, shell } = require("electron");
 const { spawn } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
@@ -36,6 +37,27 @@ function validateRunStagePayload(payload) {
   }
 
   return null;
+}
+
+function getSettingsPath() {
+  return path.join(app.getPath("userData"), "settings.json");
+}
+
+function readAppSettings() {
+  const settingsPath = getSettingsPath();
+  try {
+    const raw = fs.readFileSync(settingsPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeAppSettings(settings) {
+  const settingsPath = getSettingsPath();
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 
 /**
@@ -213,6 +235,57 @@ async function ensureOllamaRunning(host, ipcEvent, stage) {
 }
 
 function registerStageIpcHandlers() {
+  ipcMain.handle("get-app-settings", async () => {
+    const settings = readAppSettings();
+    const anthropicApiKey = typeof settings.anthropicApiKey === "string" ? settings.anthropicApiKey.trim() : "";
+    const geminiApiKey = typeof settings.geminiApiKey === "string" ? settings.geminiApiKey.trim() : "";
+    return createSuccess({
+      hasAnthropicApiKey: Boolean(anthropicApiKey),
+      hasGeminiApiKey: Boolean(geminiApiKey),
+    });
+  });
+
+  ipcMain.handle("set-app-settings", async (_event, payload) => {
+    if (!payload || typeof payload !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
+    }
+
+    const next = readAppSettings();
+    if (Object.prototype.hasOwnProperty.call(payload, "anthropicApiKey")) {
+      const value = payload.anthropicApiKey;
+      if (value === null || value === undefined || value === "") {
+        delete next.anthropicApiKey;
+      } else if (typeof value === "string") {
+        next.anthropicApiKey = value.trim();
+      } else {
+        return createError(ErrorCodes.INVALID_REQUEST, "anthropicApiKey must be a string or empty.");
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, "geminiApiKey")) {
+      const value = payload.geminiApiKey;
+      if (value === null || value === undefined || value === "") {
+        delete next.geminiApiKey;
+      } else if (typeof value === "string") {
+        next.geminiApiKey = value.trim();
+      } else {
+        return createError(ErrorCodes.INVALID_REQUEST, "geminiApiKey must be a string or empty.");
+      }
+    }
+
+    try {
+      writeAppSettings(next);
+      return createSuccess({
+        hasAnthropicApiKey: typeof next.anthropicApiKey === "string" && next.anthropicApiKey.trim().length > 0,
+        hasGeminiApiKey: typeof next.geminiApiKey === "string" && next.geminiApiKey.trim().length > 0,
+      });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to persist settings.", {
+        reason: error?.message || String(error),
+      });
+    }
+  });
+
   ipcMain.handle("open-path", async (_event, payload) => {
     if (!payload || typeof payload !== "object" || typeof payload.path !== "string") {
       return createError(ErrorCodes.INVALID_REQUEST, "path is required for open-path.");
@@ -259,6 +332,87 @@ function registerStageIpcHandlers() {
       });
     } catch (error) {
       return toUnknownError(error);
+    }
+  });
+
+  ipcMain.handle("stage4-import-final-script", async (_event, payload) => {
+    if (!payload || typeof payload !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
+    }
+    const recapPath = payload.recapPath;
+    const finalScriptJson = payload.finalScriptJson;
+    if (typeof recapPath !== "string" || !recapPath.trim()) {
+      return createError(ErrorCodes.INVALID_REQUEST, "recapPath is required.");
+    }
+    if (typeof finalScriptJson !== "string" || !finalScriptJson.trim()) {
+      return createError(ErrorCodes.INVALID_REQUEST, "refinedRecapJson is required.");
+    }
+
+    const resolvedRecap = path.resolve(process.cwd(), recapPath);
+    const outPath = path.join(path.dirname(resolvedRecap), "recap_pages_with_sentences.json");
+
+    let parsed;
+    try {
+      parsed = JSON.parse(finalScriptJson);
+    } catch (error) {
+      return createError(ErrorCodes.INVALID_REQUEST, "refinedRecapJson must be valid JSON.", {
+        reason: error?.message || String(error),
+      });
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "refinedRecapJson must be a JSON object.");
+    }
+    if (parsed.mode !== "page") {
+      return createError(ErrorCodes.INVALID_REQUEST, "Expected mode='page'.");
+    }
+    if (!Array.isArray(parsed.pages) || parsed.pages.length === 0) {
+      return createError(ErrorCodes.INVALID_REQUEST, "Expected non-empty pages[].");
+    }
+    for (const page of parsed.pages) {
+      if (!page || typeof page !== "object" || !Number.isInteger(page.page_idx)) {
+        return createError(ErrorCodes.INVALID_REQUEST, "Each pages[] item must include page_idx (int).");
+      }
+      if (typeof page.recap !== "string") {
+        return createError(ErrorCodes.INVALID_REQUEST, "Each pages[] item must include recap (string).");
+      }
+      if (!Array.isArray(page.panels)) {
+        return createError(ErrorCodes.INVALID_REQUEST, "Each pages[] item must include panels[].");
+      }
+      for (const panel of page.panels) {
+        if (!panel || typeof panel !== "object") {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must be an object.");
+        }
+        if (!Number.isInteger(panel.sub_panel_idx)) {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include sub_panel_idx (int).");
+        }
+        if (typeof panel.panel_id !== "string" || !panel.panel_id.trim()) {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include panel_id (string).");
+        }
+        if (typeof panel.crop_path !== "string" || !panel.crop_path.trim()) {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include crop_path (string).");
+        }
+        if (typeof panel.sentence !== "string") {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include sentence (string).");
+        }
+      }
+    }
+
+    try {
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+      sendStageEvent(_event, {
+        type: "complete",
+        stage: 4,
+        refined_recap_path: outPath,
+        imported: true,
+      });
+      return createSuccess({ refined_recap_path: outPath });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to write recap_pages_with_sentences.json.", {
+        reason: error?.message || String(error),
+        outPath,
+      });
     }
   });
 
@@ -336,6 +490,31 @@ function registerStageIpcHandlers() {
         return runResult;
       }
 
+      if (stage === 4) {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const settings = readAppSettings();
+        const extraEnv = {};
+        if (!process.env.ANTHROPIC_API_KEY && typeof settings.anthropicApiKey === "string" && settings.anthropicApiKey.trim()) {
+          extraEnv.ANTHROPIC_API_KEY = settings.anthropicApiKey.trim();
+        }
+        if (
+          !process.env.GEMINI_API_KEY &&
+          !process.env.GOOGLE_API_KEY &&
+          typeof settings.geminiApiKey === "string" &&
+          settings.geminiApiKey.trim()
+        ) {
+          extraEnv.GEMINI_API_KEY = settings.geminiApiKey.trim();
+        }
+        const runResult = await runPythonCommand(
+          pythonCmd,
+          ["-m", "scripts.refine_script", ...args],
+          _event,
+          stage,
+          extraEnv,
+        );
+        return runResult;
+      }
+
       return createSuccess({
         stage,
         args,
@@ -351,11 +530,11 @@ function registerStageIpcHandlers() {
   });
 }
 
-function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null) {
+function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null, extraEnv = null) {
   return new Promise((resolve) => {
     const proc = spawn(command, commandArgs, {
       cwd: process.cwd(),
-      env: process.env,
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     });
 
     let stderr = "";

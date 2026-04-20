@@ -43,6 +43,17 @@ contextBridge.exposeInMainWorld("gento", {
       .invoke("run-stage", { stage, args })
       .then((result) => normalizeResult(result));
   },
+  getAppSettings() {
+    return ipcRenderer.invoke("get-app-settings").then((result) => normalizeResult(result));
+  },
+  setAppSettings(patch) {
+    return ipcRenderer.invoke("set-app-settings", patch).then((result) => normalizeResult(result));
+  },
+  importStage4FinalScript(recapPath, finalScriptJson) {
+    return ipcRenderer
+      .invoke("stage4-import-final-script", { recapPath, finalScriptJson })
+      .then((result) => normalizeResult(result));
+  },
   scrapeManga(url, outDir = "./downloads") {
     return ipcRenderer
       .invoke("scrape-manga", { url, outDir })
