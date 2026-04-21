@@ -36,6 +36,7 @@ type StageEvent = {
   refined_recap_path?: string;
   stitched_audio_path?: string;
   audio_dir?: string;
+  video_path?: string;
   imported?: boolean;
 };
 

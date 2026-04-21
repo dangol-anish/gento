@@ -634,30 +634,37 @@ stage:error     { stage: 5, message: "Error text" }
 
 ### Stage 6 — Video Render
 
-**Location:** `video-generation/`
+**Status:** Implemented.
 
-**Purpose:** Stitch static panel PNG images with the generated WAV audio into a final `.mp4` video using ffmpeg. Provide a live preview in the Electron UI.
+**File:** `scripts/render_video.py`
 
-**Input:** `final_script.json` (with timing metadata from Stage 5)
+**Purpose:** Stitch static panel PNG images with the generated WAV audio into a final `.mp4` video using ffmpeg.
 
-**Output:** `out_ch001/final/video.mp4`
+**Input:** `output/final/final_script.json` (with timing metadata from Stage 5)
+
+**Output:** `output/final/video.mp4`
 
 #### How It Works
 
-1. The Electron renderer reads `final_script.json`.
-2. Builds a timeline: each page maps to a duration (`end_ms - start_ms`).
-3. **Live preview:** Show the current panel image in a `<img>` tag. Advance through panels as the `<audio>` element progresses, using `timeupdate` events against `start_ms` / `end_ms` per panel.
-4. On "Export to MP4":
-   - Generate an ffmpeg `concat` demuxer input file listing each panel image and its display duration.
-   - Spawn ffmpeg as a child process:
+1. Load `final_script.json`.
+2. Generate an ffmpeg `concat` demuxer input file listing each panel image and its display duration.
+3. Spawn ffmpeg with a scale/pad filter so all panels render into a consistent canvas size.
+
+**CLI:**
+
+```bash
+python3 -m scripts.render_video \
+  output/final/final_script.json \
+  --out-mp4 output/final/video.mp4
+```
 
 ```bash
 ffmpeg \
   -f concat -safe 0 -i panel_list.txt \
-  -i out_ch001/final/audio/stitched.wav \
-  -c:v libx264 -r 24 -pix_fmt yuv420p \
+  -i output/final/audio/narration_stitched.wav \
+  -c:v libx264 -r 24 \
   -c:a aac -shortest \
-  out_ch001/final/video.mp4
+  output/final/video.mp4
 ```
 
 #### `panel_list.txt` Format
@@ -676,7 +683,7 @@ Duration for each panel = `(end_ms - start_ms) / 1000` seconds.
 
 ```
 stage:progress  { stage: 6, message: "Encoding video...", percent: 60 }
-stage:complete  { stage: 6, video_path: "out_ch001/final/video.mp4" }
+stage:complete  { stage: 6, video_path: "output/final/video.mp4" }
 stage:error     { stage: 6, message: "Error text" }
 ```
 
@@ -727,6 +734,7 @@ const STAGE_COMMANDS = {
   3: (args) => ["python", ["scripts/make_panel_recaps.py", ...args]],
   4: (args) => ["python", ["scripts/refine_script.py", ...args]],
   5: (args) => ["python", ["scripts/generate_audio.py", ...args]],
+  6: (args) => ["python", ["scripts/render_video.py", ...args]],
 };
 
 ipcMain.handle("run-stage", async (event, { stage, args }) => {

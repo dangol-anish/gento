@@ -526,6 +526,17 @@ function registerStageIpcHandlers() {
         return runResult;
       }
 
+      if (stage === 6) {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const runResult = await runPythonCommand(
+          pythonCmd,
+          ["-m", "scripts.render_video", ...args],
+          _event,
+          stage,
+        );
+        return runResult;
+      }
+
       return createSuccess({
         stage,
         args,
