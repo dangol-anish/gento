@@ -476,7 +476,7 @@ stage:error     { stage: 3, message: "Error text" }
 
 **File:** `scripts/refine_script.py`
 
-**Purpose:** Convert the Stage 3 recap into **one narration sentence per panel**, keeping strict alignment with the extracted panel list. This is the last stage currently implemented in the Electron UI.
+**Purpose:** Convert the Stage 3 recap into **one narration sentence per panel**, keeping strict alignment with the extracted panel list.
 
 **Input:** `output/final/recap_pages.json` (from Stage 3)
 
@@ -559,73 +559,74 @@ Set in `config/defaults.json` or via the Settings screen in the UI.
 
 ### Stage 5 — Audio Generation
 
-**Status:** Planned (not implemented in this repo/UI yet).
+**Status:** Implemented.
 
-**File:** `scripts/generate_audio.py` (planned)
+**File:** `scripts/generate_audio.py`
 
-**Purpose:** Convert the final script into `.wav` audio files using local TTS (Kokoro). Track timing metadata per sentence and per panel.
+**Purpose:** Generate **natural-sounding per-page narration** with Kokoro (one TTS call per page), stitch pages into a single narration track, and compute per-panel `start_ms/end_ms` timestamps.
 
-**Input:** `out_ch001/final/final_script.json`
+**Input:** `output/final/recap_pages_with_sentences.json` (from Stage 4)
+
+**Outputs:**
+
+- `output/final/audio/page_000.wav`, `page_001.wav`, ... (one per page)
+- `output/final/audio/narration_stitched.wav` (full chapter narration)
+- `output/final/final_script.json` (timeline JSON for Stage 6)
 
 **CLI:**
 
 ```bash
-python scripts/generate_audio.py \
-  out_ch001/final/final_script.json \
-  --out-dir out_ch001/final/audio/ \
+python3 -m scripts.generate_audio \
+  output/final/recap_pages_with_sentences.json \
+  --out-dir output/final/audio/ \
   --voice af_heart \
   --speed 1.0
 ```
 
-**Output:**
-
-- `out_ch001/final/audio/page_000.wav`, `page_001.wav`, ... (one per page)
-- `out_ch001/final/audio/stitched.wav` (full chapter audio)
-- `final_script.json` updated in-place with timing fields:
+**Timeline JSON (`final_script.json`)**
 
 ```json
 {
+  "audio_path": "output/final/audio/narration_stitched.wav",
   "pages": [
     {
       "page_idx": 0,
+      "audio_path": "output/final/audio/page_000.wav",
       "start_ms": 0,
       "end_ms": 4200,
-      "sentences": ["..."],
       "panels": [
         {
           "panel_id": "...",
           "crop_path": "...",
+          "sentence": "...",
           "start_ms": 0,
           "end_ms": 2100
         }
       ]
     }
-  ],
-  "stitched_audio_path": "out_ch001/final/audio/stitched.wav"
+  ]
 }
 ```
 
 #### How It Works
 
-1. Load `final_script.json`. Iterate pages in order.
-2. For each page, concatenate all sentence strings and call Kokoro TTS.
-3. Kokoro returns the audio buffer and per-sentence timing boundaries.
-4. Save per-page `.wav` file.
-5. Stitch all page wavs into `stitched.wav` using audio concatenation.
-6. Calculate `start_ms` and `end_ms` for each page and each panel (by distributing page duration evenly across panels, weighted by sentence count).
-7. Write timing data back into `final_script.json`.
+1. Load `recap_pages_with_sentences.json`.
+2. For each page, join panel sentences into a single page paragraph and call Kokoro once (better continuity than per-panel TTS).
+3. Trim silence + normalize loudness per page, then write per-page wavs.
+4. Stitch pages into `narration_stitched.wav` with short crossfades.
+5. Compute panel timestamps by distributing each page duration across panels (weighted by a heuristic, or optional per-panel timing TTS).
+6. Write `final_script.json` with `start_ms/end_ms` per panel.
 
 #### Kokoro Integration Notes
 
 - Kokoro is a local TTS library (Python). Install via `pip install kokoro`.
-- Voice options: `af_heart`, `af_bella`, `am_michael`, etc.
-- Kokoro returns `(audio_array, sample_rate)` and optionally per-segment timestamps.
+- Voice options depend on your Kokoro install (e.g. `af_heart`, `af_bella`, `am_michael`).
 
 #### IPC Events
 
 ```
 stage:progress  { stage: 5, message: "Generating audio for page 6/24", percent: 25 }
-stage:complete  { stage: 5, stitched_audio: "out_ch001/final/audio/stitched.wav" }
+stage:complete  { stage: 5, stitched_audio_path: "output/final/audio/narration_stitched.wav", final_script_path: "output/final/final_script.json" }
 stage:error     { stage: 5, message: "Error text" }
 ```
 

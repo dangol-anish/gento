@@ -515,6 +515,17 @@ function registerStageIpcHandlers() {
         return runResult;
       }
 
+      if (stage === 5) {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const runResult = await runPythonCommand(
+          pythonCmd,
+          ["-m", "scripts.generate_audio", ...args],
+          _event,
+          stage,
+        );
+        return runResult;
+      }
+
       return createSuccess({
         stage,
         args,

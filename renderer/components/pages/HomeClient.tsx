@@ -13,6 +13,7 @@ import { Stage1Extractor } from "@/components/stage1/Stage1Extractor";
 import { Stage2SceneEnricher } from "@/components/stage2/Stage2SceneEnricher";
 import { Stage3RecapGenerator } from "@/components/stage3/Stage3RecapGenerator";
 import { Stage4ScriptRefiner } from "@/components/stage4/Stage4ScriptRefiner";
+import { Stage5AudioGenerator } from "@/components/stage5/Stage5AudioGenerator";
 import { SessionCard } from "@/components/session/SessionCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -123,6 +124,8 @@ export default function HomeClient() {
                   <Stage3RecapGenerator onSessionUpdate={setSessionState} />
                 ) : activeStage === 4 ? (
                   <Stage4ScriptRefiner onSessionUpdate={setSessionState} />
+                ) : activeStage === 5 ? (
+                  <Stage5AudioGenerator onSessionUpdate={setSessionState} />
                 ) : (
                   <div className="space-y-4 rounded-3xl border border-border/60 bg-background/80 p-6 text-sm text-muted-foreground">
                     <h2 className="text-base font-semibold text-foreground">Stage {activeStage} is not implemented yet</h2>

@@ -8,3 +8,4 @@ pytorch_metric_learning
 timm
 matplotlib
 shapely
+kokoro
