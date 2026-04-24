@@ -30,6 +30,9 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
   const [fps, setFps] = useState(24);
   const [crf, setCrf] = useState(18);
   const [preset, setPreset] = useState("veryfast");
+  const [transitions, setTransitions] = useState(true);
+  const [transitionSeed, setTransitionSeed] = useState<number | "">("");
+  const [ffmpegLoglevel, setFfmpegLoglevel] = useState<"error" | "warning" | "info">("error");
 
   const [isRunningStage, setIsRunningStage] = useState(false);
   const [hasStageStarted, setHasStageStarted] = useState(false);
@@ -127,6 +130,9 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
       fps,
       crf,
       preset: preset.trim(),
+      transitions,
+      transitionSeed: transitionSeed === "" ? undefined : Number(transitionSeed),
+      ffmpegLoglevel,
       overwrite: true,
     });
 
@@ -236,6 +242,57 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
               onChange={(event) => setCrf(Number(event.target.value))}
               className="glass-interactive h-10 w-full rounded-xl border px-3 text-sm text-foreground outline-none"
             />
+          </div>
+
+          <div className="space-y-2 lg:col-span-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Transitions</label>
+            <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-background/70 p-4">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={transitions}
+                  onChange={(event) => setTransitions(event.target.checked)}
+                />
+                Enable random pan/zoom per panel
+              </label>
+              <div className="grid gap-2 lg:grid-cols-2">
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Seed (optional)</div>
+                  <input
+                    type="number"
+                    value={transitionSeed}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      setTransitionSeed(raw === "" ? "" : Number(raw));
+                    }}
+                    disabled={!transitions}
+                    placeholder="Leave blank for random"
+                    className="glass-interactive h-10 w-full rounded-xl border px-3 text-sm text-foreground outline-none disabled:opacity-60"
+                  />
+                </div>
+                <div className="text-xs text-muted-foreground self-end">
+                  Uses zoom in/out and pan left/right, up/down.
+                </div>
+              </div>
+
+              <div className="grid gap-2 lg:grid-cols-2">
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">ffmpeg logs</div>
+                  <select
+                    value={ffmpegLoglevel}
+                    onChange={(event) => setFfmpegLoglevel(event.target.value as "error" | "warning" | "info")}
+                    className="glass-interactive h-10 w-full appearance-none rounded-xl border px-3 pr-9 text-sm text-foreground outline-none"
+                  >
+                    <option value="error">Errors only</option>
+                    <option value="warning">Warnings</option>
+                    <option value="info">Info (verbose)</option>
+                  </select>
+                </div>
+                <div className="text-xs text-muted-foreground self-end">
+                  If the render looks stuck, set this to “Info” to see ffmpeg output in the stage log.
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2 lg:col-span-2">

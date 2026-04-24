@@ -9,6 +9,9 @@ export type Stage6Settings = {
   crf?: number;
   preset?: string;
   noAudio?: boolean;
+  transitions?: boolean;
+  transitionSeed?: number;
+  ffmpegLoglevel?: "quiet" | "panic" | "fatal" | "error" | "warning" | "info" | "verbose" | "debug" | "trace";
   overwrite?: boolean;
 };
 
@@ -22,6 +25,11 @@ export function buildStage6Args(params: Stage6Settings): string[] {
   if (typeof params.crf === "number" && Number.isFinite(params.crf)) args.push("--crf", String(params.crf));
   if (params.preset && params.preset.trim()) args.push("--preset", params.preset.trim());
   if (params.noAudio) args.push("--no-audio");
+  if (params.transitions === false) args.push("--no-transitions");
+  if (typeof params.transitionSeed === "number" && Number.isFinite(params.transitionSeed)) {
+    args.push("--transition-seed", String(params.transitionSeed));
+  }
+  if (params.ffmpegLoglevel) args.push("--ffmpeg-loglevel", params.ffmpegLoglevel);
   if (params.overwrite) args.push("--overwrite");
 
   return args;
@@ -40,4 +48,3 @@ export function extractCompleteSummary(events: StageEvent[]) {
     videoPath: (completeEvent as any).video_path as string | undefined,
   };
 }
-
