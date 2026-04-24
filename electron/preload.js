@@ -54,6 +54,11 @@ contextBridge.exposeInMainWorld("gento", {
       .invoke("stage4-import-final-script", { recapPath, finalScriptJson })
       .then((result) => normalizeResult(result));
   },
+  importStage4GeminiJson(outPath, geminiJson) {
+    return ipcRenderer
+      .invoke("stage4-import-gemini-json", { outPath, geminiJson })
+      .then((result) => normalizeResult(result));
+  },
   scrapeManga(url, outDir = "./downloads") {
     return ipcRenderer
       .invoke("scrape-manga", { url, outDir })

@@ -2,13 +2,58 @@ import argparse
 import os
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
+
+from PIL import Image
 
 from scripts.common.errors import AppError
 from scripts.extractor import cli as stage1_cli
+from scripts.extractor.panels import write_panel_outputs
 
 
 class TestStage1Cli(unittest.TestCase):
+    def test_collect_image_paths_sorts_pages_numerically(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("page5.jpg", "page6.jpg", "page10.jpg", "page2.jpg"):
+                (root / name).write_bytes(b"")
+
+            paths = stage1_cli.collect_image_paths([tmp])
+            self.assertEqual([Path(p).name for p in paths], ["page2.jpg", "page5.jpg", "page6.jpg", "page10.jpg"])
+
+    def test_write_panel_outputs_writes_panels_overlay_image(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            image_path = tmp_path / "page1.png"
+            Image.new("RGB", (100, 80), (255, 255, 255)).save(image_path)
+
+            out_root = tmp_path / "out"
+            page_result = {
+                "panels": [[10, 10, 40, 30], [50, 12, 90, 35]],
+                "characters": [[12, 40, 28, 75]],
+                "speech_bubbles": [[55, 40, 95, 70]],
+                "texts": [[58, 44, 90, 55]],
+            }
+
+            write_panel_outputs(
+                out_root=out_root,
+                page_idx=0,
+                image_path=str(image_path),
+                page_result=page_result,
+                page_ocr=None,
+                chapter_slug="chapter_1",
+                reading_direction="ltr",
+            )
+
+            overlay_path = out_root / "final" / "pages" / "000" / "panels_overlay.png"
+            self.assertTrue(overlay_path.exists(), "expected panels_overlay.png to be written")
+            self.assertGreater(overlay_path.stat().st_size, 0, "expected panels_overlay.png to be non-empty")
+
+            detections_path = out_root / "final" / "pages" / "000" / "magi_detections_overlay.png"
+            self.assertTrue(detections_path.exists(), "expected magi_detections_overlay.png to be written")
+            self.assertGreater(detections_path.stat().st_size, 0, "expected magi_detections_overlay.png to be non-empty")
+
     def test_configure_offline_mode_sets_env_when_downloads_disallowed(self):
         with patch.dict(os.environ, {}, clear=True):
             stage1_cli._configure_offline_mode(allow_downloads=False)

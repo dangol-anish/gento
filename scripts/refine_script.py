@@ -18,6 +18,8 @@ from scripts.common.events import emit, run_with_error_boundary
 
 
 _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_ANGLE_TAG_RE = re.compile(r"</?[^>]+>")
+_QUOTE_CHARS_RE = re.compile(r"[\"“”‘’]")
 
 
 def _now_utc_iso() -> str:
@@ -123,19 +125,25 @@ def _validate_pages_sentences(doc: Any) -> list[dict[str, Any]]:
         page_idx = item.get("page_idx")
         if not isinstance(page_idx, int):
             continue
-        sentences = item.get("sentences")
-        if not isinstance(sentences, list):
+        panels = item.get("panels")
+        if not isinstance(panels, list) or not panels:
             continue
-        cleaned: list[str] = []
-        for s in sentences:
-            if not isinstance(s, str):
+        cleaned_panels: list[dict[str, str]] = []
+        for p in panels:
+            if not isinstance(p, dict):
                 continue
-            s2 = s.strip()
-            if s2:
-                cleaned.append(s2)
-        out.append({"page_idx": int(page_idx), "sentences": cleaned})
+            pid = p.get("panel_id")
+            sentence = p.get("sentence")
+            if not isinstance(pid, str) or not pid.strip() or not isinstance(sentence, str):
+                continue
+            s2 = sentence.strip()
+            if not s2:
+                continue
+            cleaned_panels.append({"panel_id": pid.strip(), "sentence": s2})
+        if cleaned_panels:
+            out.append({"page_idx": int(page_idx), "panels": cleaned_panels})
     if not out:
-        raise stage_failed("Provider output pages[] must contain {page_idx:int, sentences:string[]} objects.")
+        raise stage_failed("Provider output pages[] must contain {page_idx:int, panels:[{panel_id, sentence}]} objects.")
     return out
 
 
@@ -161,6 +169,11 @@ def _build_default_system_prompt() -> str:
         "Rules:\n"
         "- Keep the narrative faithful to the evidence; do not invent plot details.\n"
         "- Paraphrase dialogue; do not quote directly.\n"
+        "- No first-person (no inner monologue, plans, or narrator 'I').\n"
+        "- No angle-bracket tags (no <narrator>, <character>, etc.).\n"
+        "- Avoid purple prose and filler; be concrete and visual.\n"
+        "- Keep sentences short and punchy (aim <= 18 words).\n"
+        "- Avoid repetitive sentence starts; don't begin every sentence with the same word.\n"
         "- Use plain English. Do not use quotation marks.\n"
         "- Return ONLY valid JSON.\n\n"
         "Output JSON schema:\n"
@@ -168,7 +181,9 @@ def _build_default_system_prompt() -> str:
         '  "pages": [\n'
         "    {\n"
         '      "page_idx": 0,\n'
-        '      "sentences": ["Sentence for panel 0.", "Sentence for panel 1."]\n'
+        '      "panels": [\n'
+        '        {"panel_id": "id", "sentence": "Sentence for that panel."}\n'
+        "      ]\n"
         "    }\n"
         "  ]\n"
         "}\n"
@@ -185,7 +200,8 @@ def _read_text(path: Path) -> str:
 def _read_transcript(panel_dir: Path) -> str:
     txt = _read_text(panel_dir / "transcript.txt").strip()
     if txt:
-        return txt
+        # Avoid leaking angle-bracket tags (e.g. "<unsure>:") into provider outputs.
+        return re.sub(r"<([^>]+)>", r"\1", txt).strip()
     try:
         items = json.loads(_read_text(panel_dir / "transcript.json"))
     except Exception:
@@ -200,7 +216,7 @@ def _read_transcript(panel_dir: Path) -> str:
             text = text.strip()
             if not text:
                 continue
-            lines.append(f"<{speaker}>: {text}")
+            lines.append(f"{speaker}: {text}")
         return "\n".join(lines).strip()
     return ""
 
@@ -212,8 +228,10 @@ def _build_page_user_prompt(
     panels: list[dict[str, Any]],
     out_root: Path,
     scene_caption_by_panel_id: dict[str, str],
+    draft_by_panel_id: dict[str, str] | None = None,
 ) -> str:
     blocks: list[str] = []
+    panel_ids_in_order: list[str] = []
     for panel in panels:
         panel_id = panel.get("panel_id") if isinstance(panel.get("panel_id"), str) else ""
         crop_path = panel.get("crop_path") if isinstance(panel.get("crop_path"), str) else ""
@@ -222,26 +240,88 @@ def _build_page_user_prompt(
         transcript = _read_transcript(panel_dir)
         scene_caption = scene_caption_by_panel_id.get(panel_id, "")
         transcript = "\n".join(transcript.splitlines()[:15]).strip() if transcript else ""
+        draft = (draft_by_panel_id or {}).get(panel_id, "").strip() if panel_id else ""
         blocks.append(
             "\n".join(
                 [
                     f"[Panel {sub_idx:03d}] panel_id={panel_id or '(unknown)'}",
                     f"Scene caption: {scene_caption.strip() or '(none)'}",
+                    f"Draft sentence (may be wrong): {draft or '(none)'}",
                     f"Transcript (OCR): {transcript.strip() or '(none)'}",
                 ]
             )
         )
+        if panel_id.strip():
+            panel_ids_in_order.append(panel_id.strip())
 
     evidence = "\n\n".join(blocks).strip()
     return (
-        "Write one narration sentence per panel, in the same order as the evidence.\n"
+        "Write EXACTLY one narration sentence per panel, in the same order as the evidence.\n"
+        "Do not invent details; if evidence is unclear, write a vague but accurate sentence.\n"
         "Return ONLY the JSON object described in the system prompt.\n\n"
         f"page_idx: {page_idx}\n\n"
         f"Page recap context (do not copy verbatim):\n{page_recap.strip()}\n\n"
+        f"Required panel_ids (in order): {json.dumps(panel_ids_in_order, ensure_ascii=False)}\n\n"
         "Panel evidence:\n"
         + (evidence or "(none)")
         + "\n"
     )
+
+
+def _sentence_violations(sentence: str) -> list[str]:
+    s = (sentence or "").strip()
+    if not s:
+        return ["empty"]
+    violations: list[str] = []
+    if _ANGLE_TAG_RE.search(s):
+        violations.append("contains_angle_brackets")
+    if _QUOTE_CHARS_RE.search(s):
+        violations.append("contains_quotes")
+    if re.search(r"\b(I|I'd|I'll|Im|I'm|me|my|mine|we|our|ours)\b", s, flags=re.IGNORECASE):
+        violations.append("first_person")
+    # Common LLM slop / purple prose crutches.
+    slop_phrases = [
+        "contemplative frown",
+        "etched on his face",
+        "clouding his features",
+        "dominating his features",
+        "a mix of",
+        "a wave of",
+        "a growing sense of",
+        "punctuated by",
+        "utterly perplexed",
+        "a visible expression of",
+        "fresh wave of",
+        "the protagonist",
+        "seemingly oblivious",
+    ]
+    lower = s.lower()
+    if any(p in lower for p in slop_phrases):
+        violations.append("purple_prose")
+    words = re.findall(r"\w+", s)
+    if len(words) > 26:
+        violations.append("too_long")
+    return violations
+
+
+def _fix_sentence_locally(sentence: str) -> str:
+    """
+    Deterministic cleanup; don't try to be 'smart', just remove obvious garbage.
+    Provider should do the heavy lifting.
+    """
+    s = (sentence or "").strip()
+    if not s:
+        return ""
+    s = _ANGLE_TAG_RE.sub("", s)
+    s = _QUOTE_CHARS_RE.sub("", s)
+    s = re.sub(r"[ \t]+", " ", s).strip()
+    # Trim a few recurring purple-prose fragments.
+    s = re.sub(r"\bthe protagonist\b", "they", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(a )?(contemplative frown|bewildered expression|questioning gaze)\b.*?\b(as|while)\b", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    if s and not re.search(r"[.!?]$", s):
+        s += "."
+    return s
 
 
 def _anthropic_messages_create(
@@ -323,7 +403,7 @@ def _gemini_generate_content(
 def _build_recap_pages_with_sentences(
     *,
     recap_pages: dict[str, Any],
-    sentences_by_page_idx: dict[int, list[str]],
+    sentences_by_page_idx: dict[int, dict[str, str]],
 ) -> dict[str, Any]:
     pages_in = recap_pages.get("pages") if isinstance(recap_pages.get("pages"), list) else []
     pages_out: list[dict[str, Any]] = []
@@ -353,10 +433,12 @@ def _build_recap_pages_with_sentences(
                 }
             )
 
-        one_each = _coerce_one_sentence_per_panel(sentences_by_page_idx.get(int(page_idx), []), len(panels_clean))
         panels_out: list[dict[str, Any]] = []
-        for i, panel in enumerate(panels_clean):
-            panels_out.append({**panel, "sentence": one_each[i] if i < len(one_each) else ""})
+        by_panel_id = sentences_by_page_idx.get(int(page_idx), {})
+        for panel in panels_clean:
+            pid = str(panel.get("panel_id") or "").strip()
+            sentence = by_panel_id.get(pid, "") if pid else ""
+            panels_out.append({**panel, "sentence": str(sentence or "").strip()})
 
         pages_out.append({"page_idx": int(page_idx), "recap": recap.strip(), "panels": panels_out})
 
@@ -364,6 +446,45 @@ def _build_recap_pages_with_sentences(
         raise stage_failed("Failed to build output pages (recap_pages.json missing expected page structure).")
 
     return {"mode": "page", "pages": pages_out}
+
+
+def _normalize_provider_page_output(
+    *,
+    raw: dict[str, Any],
+    page_idx: int,
+    required_panel_ids: list[str],
+) -> dict[str, Any]:
+    """
+    Accept either the new schema (panels:[{panel_id,sentence}]) or older schema (sentences:[...]).
+    Returns a dict shaped like: {page_idx:int, panels:[{panel_id, sentence}]}
+    """
+    if not isinstance(raw, dict):
+        raise stage_failed("Provider output must be a JSON object.")
+
+    # New schema.
+    if isinstance(raw.get("panels"), list):
+        doc = {"pages": [raw]}
+        pages = _validate_pages_sentences(doc)
+        only = next((p for p in pages if isinstance(p, dict) and p.get("page_idx") == int(page_idx)), None)
+        if only is None:
+            raise stage_failed("Provider response missing page_idx.", {"page_idx": page_idx})
+        return only
+
+    # Old schema: page-level sentences list; map by required panel ids.
+    sentences = raw.get("sentences")
+    if isinstance(sentences, list) and required_panel_ids:
+        cleaned: list[str] = []
+        for s in sentences:
+            if isinstance(s, str) and s.strip():
+                cleaned.append(_fix_sentence_locally(s.strip()))
+        # Pad/trim.
+        if len(cleaned) < len(required_panel_ids):
+            cleaned.extend([""] * (len(required_panel_ids) - len(cleaned)))
+        cleaned = cleaned[: len(required_panel_ids)]
+        panels_out = [{"panel_id": pid, "sentence": cleaned[i]} for i, pid in enumerate(required_panel_ids)]
+        return {"page_idx": int(page_idx), "panels": panels_out}
+
+    raise stage_failed("Provider output missing expected fields.", {"expected": ["panels", "sentences"]})
 
 
 def _run_stage() -> None:
@@ -417,7 +538,7 @@ def _run_stage() -> None:
     if not pages_sorted:
         raise invalid_request("recap_pages.json is missing pages[].", {"hint": "Run Stage 3 first."})
 
-    sentences_by_page_idx: dict[int, list[str]] = {}
+    sentences_by_page_idx: dict[int, dict[str, str]] = {}
 
     timeout = httpx.Timeout(float(max(5, int(args.timeout))))
     with httpx.Client(timeout=timeout) as client:
@@ -425,74 +546,146 @@ def _run_stage() -> None:
             page_idx = int(page.get("page_idx") or 0)
             page_recap = page.get("recap") if isinstance(page.get("recap"), str) else ""
             panels = page.get("panels") if isinstance(page.get("panels"), list) else []
+            panel_drafts = page.get("panel_drafts") if isinstance(page.get("panel_drafts"), list) else []
+            draft_by_panel_id: dict[str, str] = {}
+            for item in panel_drafts:
+                if not isinstance(item, dict):
+                    continue
+                pid = item.get("panel_id")
+                s = item.get("draft_sentence")
+                if isinstance(pid, str) and pid.strip() and isinstance(s, str) and s.strip():
+                    draft_by_panel_id[pid.strip()] = s.strip()
             panel_refs: list[dict[str, Any]] = [p for p in panels if isinstance(p, dict)]
             if not panel_refs:
                 continue
+            required_panel_ids = [
+                str(p.get("panel_id") or "").strip()
+                for p in panel_refs
+                if isinstance(p.get("panel_id"), str) and str(p.get("panel_id") or "").strip()
+            ]
 
             percent = 10 + int((idx / max(1, len(pages_sorted))) * 70)
             emit("progress", stage=4, message=f"Refining page {idx}/{len(pages_sorted)} (page_idx={page_idx})...", percent=percent)
 
-            user_prompt = _build_page_user_prompt(
+            base_user_prompt = _build_page_user_prompt(
                 page_idx=page_idx,
                 page_recap=page_recap,
                 panels=panel_refs,
                 out_root=out_root,
                 scene_caption_by_panel_id=scene_caption_by_panel_id,
+                draft_by_panel_id=draft_by_panel_id or None,
             )
 
-            started = time.time()
-            if provider == "anthropic":
-                api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-                if not api_key:
-                    raise stage_failed("Missing ANTHROPIC_API_KEY.", {"env": "ANTHROPIC_API_KEY"})
-                try:
-                    text = _anthropic_messages_create(
-                        client,
-                        api_key=api_key,
-                        model=model,
-                        system=system_prompt,
-                        user=user_prompt,
-                        max_tokens=int(args.max_tokens),
-                        temperature=float(args.temperature),
+            # One retry loop if the provider produces slop.
+            last_text = ""
+            for attempt in range(2):
+                critique = ""
+                if attempt == 1 and last_text:
+                    critique = (
+                        "\n\nYour previous output violated rules (first-person/tags/quotes/purple-prose/too-long). "
+                        "Rewrite to comply. Keep the same page_idx and the same panel_id set.\n"
+                        "Previous output:\n"
+                        + last_text.strip()
+                        + "\n"
                     )
-                except Exception as exc:  # noqa: BLE001
-                    raise stage_failed("Failed to call Anthropic API.", {"reason": str(exc), "model": model, "page_idx": page_idx}) from exc
-            else:
-                api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-                if not api_key:
+                user_prompt = base_user_prompt + critique
+
+                started = time.time()
+                if provider == "anthropic":
+                    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+                    if not api_key:
+                        raise stage_failed("Missing ANTHROPIC_API_KEY.", {"env": "ANTHROPIC_API_KEY"})
+                    try:
+                        text = _anthropic_messages_create(
+                            client,
+                            api_key=api_key,
+                            model=model,
+                            system=system_prompt,
+                            user=user_prompt,
+                            max_tokens=int(args.max_tokens),
+                            temperature=float(args.temperature) if attempt == 0 else 0.0,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        raise stage_failed(
+                            "Failed to call Anthropic API.", {"reason": str(exc), "model": model, "page_idx": page_idx}
+                        ) from exc
+                else:
+                    api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+                    if not api_key:
+                        raise stage_failed(
+                            "Missing GEMINI_API_KEY / GOOGLE_API_KEY.",
+                            {"env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"]},
+                        )
+                    try:
+                        text = _gemini_generate_content(
+                            client,
+                            api_key=api_key,
+                            model=model,
+                            system=system_prompt,
+                            user=user_prompt,
+                            max_tokens=int(args.max_tokens),
+                            temperature=float(args.temperature) if attempt == 0 else 0.0,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        raise stage_failed(
+                            "Failed to call Gemini API.", {"reason": str(exc), "model": model, "page_idx": page_idx}
+                        ) from exc
+
+                elapsed = round(time.time() - started, 2)
+                last_text = text or ""
+                parsed = _extract_first_json_object(text)
+                if parsed is None:
+                    if attempt == 0:
+                        continue
                     raise stage_failed(
-                        "Missing GEMINI_API_KEY / GOOGLE_API_KEY.",
-                        {"env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"]},
+                        "Provider did not return valid JSON.",
+                        {"hint": "Ensure the model outputs JSON only.", "page_idx": page_idx, "took_s": elapsed},
                     )
-                try:
-                    text = _gemini_generate_content(
-                        client,
-                        api_key=api_key,
-                        model=model,
-                        system=system_prompt,
-                        user=user_prompt,
-                        max_tokens=int(args.max_tokens),
-                        temperature=float(args.temperature),
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    raise stage_failed("Failed to call Gemini API.", {"reason": str(exc), "model": model, "page_idx": page_idx}) from exc
 
-            elapsed = round(time.time() - started, 2)
-            parsed = _extract_first_json_object(text)
-            if parsed is None:
-                raise stage_failed(
-                    "Provider did not return valid JSON.",
-                    {"hint": "Ensure the model outputs JSON only.", "page_idx": page_idx, "took_s": elapsed},
+                normalized = _normalize_provider_page_output(
+                    raw=parsed,
+                    page_idx=page_idx,
+                    required_panel_ids=required_panel_ids,
                 )
-            refined_pages = _validate_pages_sentences({"pages": [parsed]} if "page_idx" in parsed else parsed)
-            def _page_idx_value(item: dict[str, Any]) -> int | None:
-                v = item.get("page_idx")
-                return int(v) if isinstance(v, int) else None
+                panel_items = normalized.get("panels") if isinstance(normalized.get("panels"), list) else []
+                by_panel_id: dict[str, str] = {}
+                violations: list[dict[str, Any]] = []
+                starts: list[str] = []
+                for item in panel_items:
+                    if not isinstance(item, dict):
+                        continue
+                    pid = item.get("panel_id")
+                    sentence = item.get("sentence")
+                    if not isinstance(pid, str) or not pid.strip() or not isinstance(sentence, str):
+                        continue
+                    fixed = _fix_sentence_locally(sentence)
+                    by_panel_id[pid.strip()] = fixed.strip()
+                    v = _sentence_violations(fixed)
+                    if v:
+                        violations.append({"panel_id": pid.strip(), "violations": v, "sentence": fixed})
+                    first_word = (re.findall(r"[A-Za-z]+", fixed)[:1] or [""])[0].lower()
+                    if first_word:
+                        starts.append(first_word)
 
-            only = next((p for p in refined_pages if _page_idx_value(p) == page_idx), None)
-            if only is None:
-                raise stage_failed("Provider response missing page_idx.", {"page_idx": page_idx, "took_s": elapsed})
-            sentences_by_page_idx[page_idx] = list(only.get("sentences") or [])
+                if starts:
+                    # If most sentences start with the same token (e.g. "he"), nudge a rewrite.
+                    counts: dict[str, int] = {}
+                    for w in starts:
+                        counts[w] = counts.get(w, 0) + 1
+                    most = max(counts.values()) if counts else 0
+                    if most >= max(3, int(len(starts) * 0.6)):
+                        violations.append({"panel_id": "(page)", "violations": ["repetitive_starts"], "sentence": ""})
+
+                # If it's clean enough, accept; otherwise retry once with critique.
+                if not violations or attempt == 1:
+                    if violations and attempt == 1:
+                        emit(
+                            "log",
+                            stage=4,
+                            message=f"Stage 4: accepted with remaining violations on page_idx={page_idx}: {len(violations)}",
+                        )
+                    sentences_by_page_idx[page_idx] = by_panel_id
+                    break
 
     final_doc = _build_recap_pages_with_sentences(recap_pages=recap, sentences_by_page_idx=sentences_by_page_idx)
 

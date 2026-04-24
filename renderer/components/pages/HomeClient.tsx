@@ -10,8 +10,6 @@ import {
   type Stage0Session,
 } from "@/components/stage0/Stage0Downloader";
 import { Stage1Extractor } from "@/components/stage1/Stage1Extractor";
-import { Stage2SceneEnricher } from "@/components/stage2/Stage2SceneEnricher";
-import { Stage3RecapGenerator } from "@/components/stage3/Stage3RecapGenerator";
 import { Stage4ScriptRefiner } from "@/components/stage4/Stage4ScriptRefiner";
 import { Stage5AudioGenerator } from "@/components/stage5/Stage5AudioGenerator";
 import { Stage6VideoRenderer } from "@/components/stage6/Stage6VideoRenderer";
@@ -36,6 +34,21 @@ const STAGES = [
   "Audio",
   "Video",
 ];
+
+function DisabledStage({ stageIndex }: { stageIndex: number }) {
+  return (
+    <div className="space-y-4 rounded-3xl border border-border/60 bg-background/80 p-6 text-sm text-muted-foreground">
+      <h2 className="text-base font-semibold text-foreground">
+        Stage {stageIndex} is temporarily disabled
+      </h2>
+      <p>
+        This stage UI has been commented out for now. Re-enable it in{" "}
+        <span className="font-medium text-foreground">HomeClient</span> when
+        ready.
+      </p>
+    </div>
+  );
+}
 
 export default function HomeClient() {
   const [activeStage, setActiveStage] = useState(0);
@@ -120,9 +133,9 @@ export default function HomeClient() {
                     recentChapterDirs={recentChapterDirs}
                   />
                 ) : activeStage === 2 ? (
-                  <Stage2SceneEnricher onSessionUpdate={setSessionState} />
+                  <DisabledStage stageIndex={2} />
                 ) : activeStage === 3 ? (
-                  <Stage3RecapGenerator onSessionUpdate={setSessionState} />
+                  <DisabledStage stageIndex={3} />
                 ) : activeStage === 4 ? (
                   <Stage4ScriptRefiner onSessionUpdate={setSessionState} />
                 ) : activeStage === 5 ? (

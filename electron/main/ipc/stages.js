@@ -139,7 +139,7 @@ async function waitForOllama(host, timeoutMs = 8000) {
   while (Date.now() - start < timeoutMs) {
     try {
       const result = await httpGetJson(url, 1200);
-      if (result && typeof result.status === "number" && result.status >= 200 && result.status < 500) {
+      if (result && typeof result.status === "number" && result.status >= 200 && result.status < 300) {
         return true;
       }
     } catch {
@@ -416,6 +416,49 @@ function registerStageIpcHandlers() {
     }
   });
 
+  ipcMain.handle("stage4-import-gemini-json", async (_event, payload) => {
+    if (!payload || typeof payload !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
+    }
+    const outPath = payload.outPath;
+    const geminiJson = payload.geminiJson;
+    if (typeof outPath !== "string" || !outPath.trim()) {
+      return createError(ErrorCodes.INVALID_REQUEST, "outPath is required.");
+    }
+    if (typeof geminiJson !== "string" || !geminiJson.trim()) {
+      return createError(ErrorCodes.INVALID_REQUEST, "geminiJson is required.");
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(geminiJson);
+    } catch (error) {
+      return createError(ErrorCodes.INVALID_REQUEST, "geminiJson must be valid JSON.", {
+        reason: error?.message || String(error),
+      });
+    }
+
+    if (!Array.isArray(parsed)) {
+      return createError(ErrorCodes.INVALID_REQUEST, "geminiJson must be a JSON array of pages.", {
+        receivedType: typeof parsed,
+      });
+    }
+
+    const resolvedOut = path.resolve(process.cwd(), outPath);
+    const geminiPath = path.join(path.dirname(resolvedOut), "gemini_narrator_pasted.json");
+
+    try {
+      fs.mkdirSync(path.dirname(geminiPath), { recursive: true });
+      fs.writeFileSync(geminiPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+      return createSuccess({ gemini_path: geminiPath });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to write pasted Gemini JSON file.", {
+        reason: error?.message || String(error),
+        geminiPath,
+      });
+    }
+  });
+
   ipcMain.handle("run-stage", async (_event, payload) => {
     const validationError = validateRunStagePayload(payload);
     if (validationError) {
@@ -492,25 +535,11 @@ function registerStageIpcHandlers() {
 
       if (stage === 4) {
         const pythonCmd = process.platform === "win32" ? "python" : "python3";
-        const settings = readAppSettings();
-        const extraEnv = {};
-        if (!process.env.ANTHROPIC_API_KEY && typeof settings.anthropicApiKey === "string" && settings.anthropicApiKey.trim()) {
-          extraEnv.ANTHROPIC_API_KEY = settings.anthropicApiKey.trim();
-        }
-        if (
-          !process.env.GEMINI_API_KEY &&
-          !process.env.GOOGLE_API_KEY &&
-          typeof settings.geminiApiKey === "string" &&
-          settings.geminiApiKey.trim()
-        ) {
-          extraEnv.GEMINI_API_KEY = settings.geminiApiKey.trim();
-        }
         const runResult = await runPythonCommand(
           pythonCmd,
-          ["-m", "scripts.refine_script", ...args],
+          ["-m", "scripts.gemini_to_gento", ...args],
           _event,
           stage,
-          extraEnv,
         );
         return runResult;
       }

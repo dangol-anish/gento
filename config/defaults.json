@@ -5,6 +5,7 @@
   "ollama_model": "gemma3:4b",
   "magi_model": "ragavsachdeva/magiv3",
   "magi_device": "cpu",
+  "reading_direction": "rtl",
   "tts_voice": "af_heart",
   "tts_speed": 1.0
 }

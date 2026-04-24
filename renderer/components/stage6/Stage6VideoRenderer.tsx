@@ -28,8 +28,6 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
   const [finalScriptPath, setFinalScriptPath] = useState("./output/final/final_script.json");
   const [outMp4, setOutMp4] = useState("./output/final/video.mp4");
   const [fps, setFps] = useState(24);
-  const [width, setWidth] = useState(1080);
-  const [height, setHeight] = useState(1920);
   const [crf, setCrf] = useState(18);
   const [preset, setPreset] = useState("veryfast");
 
@@ -127,8 +125,6 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
       finalScriptPath: finalScriptPath.trim(),
       outMp4: outMp4.trim(),
       fps,
-      width,
-      height,
       crf,
       preset: preset.trim(),
       overwrite: true,
@@ -242,26 +238,11 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Width</label>
-            <input
-              type="number"
-              value={width}
-              min={1}
-              onChange={(event) => setWidth(Number(event.target.value))}
-              className="glass-interactive h-10 w-full rounded-xl border px-3 text-sm text-foreground outline-none"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Height</label>
-            <input
-              type="number"
-              value={height}
-              min={1}
-              onChange={(event) => setHeight(Number(event.target.value))}
-              className="glass-interactive h-10 w-full rounded-xl border px-3 text-sm text-foreground outline-none"
-            />
+          <div className="space-y-2 lg:col-span-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resolution</label>
+            <div className="glass-interactive flex h-10 items-center rounded-xl border px-3 text-sm text-foreground">
+              1920 × 1080 (fixed)
+            </div>
           </div>
 
           <div className="space-y-2 lg:col-span-2">
@@ -297,4 +278,3 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
     </Card>
   );
 }
-

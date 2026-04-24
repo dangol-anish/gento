@@ -59,7 +59,10 @@ class TestStage4RefineScript(unittest.TestCase):
             provider_json = json.dumps(
                 {
                     "page_idx": 0,
-                    "sentences": ["One.", "Two."],
+                    "panels": [
+                        {"panel_id": "p0", "sentence": "One."},
+                        {"panel_id": "p1", "sentence": "Two."},
+                    ],
                 }
             )
 

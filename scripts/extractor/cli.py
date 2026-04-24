@@ -31,6 +31,7 @@ def parse_args() -> Any:
     parser.add_argument("--out", required=True, help="Chapter output root folder (will contain final/...).")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "mps", "cuda"])
     parser.add_argument("--model", default=STAGE1_MODEL)
+    parser.add_argument("--reading-direction", default="rtl", choices=["ltr", "rtl"])
     parser.add_argument(
         "--allow-downloads",
         action="store_true",
@@ -98,6 +99,7 @@ def _run_stage() -> None:
             page_result=page_result,
             page_ocr=page_ocr,
             chapter_slug=chapter_slug,
+            reading_direction=str(getattr(args, "reading_direction", "rtl")),
         )
         storyboard_panels.extend(page_panels)
 
@@ -109,6 +111,7 @@ def _run_stage() -> None:
         chapter_id=args.chapter_id,
         source_images=source_images,
         panels=storyboard_panels,
+        reading_direction=str(getattr(args, "reading_direction", "rtl")),
     )
 
     emit("progress", stage=1, message="Finalizing storyboard...", percent=95)

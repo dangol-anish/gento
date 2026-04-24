@@ -357,8 +357,9 @@ stage:error     { stage: 1, message: "Error text" }
 python scripts/add_scenes.py \
   out_ch001/final/storyboard.json \
   --scene-provider ollama \
-  --ollama-model llava-phi3 \
+  --ollama-model gemma3:4b \
   --ollama-host http://localhost:11434 \
+  --max-image-dim 1280 \
   --chapter-context "Shounen action manga. Protagonist has spiky black hair."
 ```
 
@@ -848,10 +849,10 @@ runStage(5, [finalScriptPath, "--out-dir", audioDir]);
 
 ### Models Used
 
-| Stage   | Model       | Purpose                                                                |
-| ------- | ----------- | ---------------------------------------------------------------------- |
+| Stage   | Model        | Purpose                                                                |
+| ------- | ------------ | ---------------------------------------------------------------------- |
 | Stage 2 | `llava-phi3` | Scene captioning — looks at panel images, writes descriptions          |
-| Stage 3 | `gemma3:4b` | Narrative recap — writes flowing narration from captions + transcripts |
+| Stage 3 | `gemma3:4b`  | Narrative recap — writes flowing narration from captions + transcripts |
 
 ### Installation
 
@@ -1057,15 +1058,15 @@ Ollama has native installers for all three platforms. The Electron app should de
 
 On first launch, Electron runs a prerequisite check and shows a setup screen if anything is missing:
 
-| Requirement       | Check                                         | Install Link                      |
-| ----------------- | --------------------------------------------- | --------------------------------- |
-| Python 3.10+      | `python --version`                            | python.org                        |
-| pip packages      | `pip show httpx pillow transformers torch`    | `pip install -r requirements.txt` |
-| Ollama            | `GET http://localhost:11434/api/tags`         | ollama.com                        |
-| gemma3:4b model   | check models list from Ollama         | `ollama pull gemma3:4b`           |
-| ffmpeg            | `ffmpeg -version`                     | ffmpeg.org                        |
-| Anthropic API key | key present in config                 | anthropic.com                     |
-| Kokoro TTS        | `python -c "import kokoro"`           | `pip install kokoro`              |
+| Requirement       | Check                                      | Install Link                      |
+| ----------------- | ------------------------------------------ | --------------------------------- |
+| Python 3.10+      | `python --version`                         | python.org                        |
+| pip packages      | `pip show httpx pillow transformers torch` | `pip install -r requirements.txt` |
+| Ollama            | `GET http://localhost:11434/api/tags`      | ollama.com                        |
+| gemma3:4b model   | check models list from Ollama              | `ollama pull gemma3:4b`           |
+| ffmpeg            | `ffmpeg -version`                          | ffmpeg.org                        |
+| Anthropic API key | key present in config                      | anthropic.com                     |
+| Kokoro TTS        | `python -c "import kokoro"`                | `pip install kokoro`              |
 
 Show a checklist UI:
 

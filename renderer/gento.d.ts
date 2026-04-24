@@ -50,6 +50,10 @@ declare global {
         recapPath: string,
         finalScriptJson: string,
       ) => Promise<GentoResult<{ refined_recap_path: string }>>;
+      importStage4GeminiJson: (
+        outPath: string,
+        geminiJson: string,
+      ) => Promise<GentoResult<{ gemini_path: string }>>;
       scrapeManga: (
         url: string,
         outDir?: string,

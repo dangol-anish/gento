@@ -18,8 +18,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("final_script_json", help="Path to output/final/final_script.json (from Stage 5).")
     parser.add_argument("--out-mp4", default=None, help="Output mp4 path (default: alongside input as video.mp4).")
     parser.add_argument("--fps", type=int, default=24, help="Video FPS (default: 24).")
-    parser.add_argument("--width", type=int, default=1080, help="Output width (default: 1080).")
-    parser.add_argument("--height", type=int, default=1920, help="Output height (default: 1920).")
+    # Stage 6 output is locked to 1920x1080 for consistent rendering targets.
+    # Keep args for backwards compatibility, but values are ignored.
+    parser.add_argument("--width", type=int, default=1920, help="(Ignored) Output width. Stage 6 always renders 1920x1080.")
+    parser.add_argument("--height", type=int, default=1080, help="(Ignored) Output height. Stage 6 always renders 1920x1080.")
     parser.add_argument("--crf", type=int, default=18, help="H.264 quality CRF (default: 18).")
     parser.add_argument("--preset", default="veryfast", help="x264 preset (default: veryfast).")
     parser.add_argument("--no-audio", action="store_true", help="Render video without audio track.")
@@ -138,8 +140,17 @@ def _run_stage() -> None:
     if fps <= 0 or fps > 120:
         raise invalid_request("fps must be between 1 and 120.", {"fps": fps})
 
-    width = int(args.width)
-    height = int(args.height)
+    # Enforce fixed render size.
+    width = 1920
+    height = 1080
+    requested_width = int(args.width)
+    requested_height = int(args.height)
+    if requested_width != width or requested_height != height:
+        emit(
+            "log",
+            stage=6,
+            message=f"Stage 6 render size is fixed at {width}x{height}; ignoring requested {requested_width}x{requested_height}.",
+        )
     if width <= 0 or height <= 0:
         raise invalid_request("width/height must be positive integers.", {"width": width, "height": height})
 

@@ -18,6 +18,8 @@ type Props = {
   setSidebarOpen: (open: boolean) => void;
 };
 
+const DISABLED_STAGE_INDICES = new Set([2, 3]);
+
 export function SidebarNav({
   stages,
   activeStage,
@@ -59,26 +61,37 @@ export function SidebarNav({
         </div>
 
         <div className="space-y-2">
-          {stages.map((stage, index) => (
-            <button
-              key={stage}
-              type="button"
-              onClick={() => {
-                setActiveStage(index);
-                setSidebarOpen(false);
-              }}
-              className={`anim-press flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
-                activeStage === index
-                  ? "text-black dark:text-white border-black/10 shadow-xs shadow-black/10"
-                  : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground"
-              }`}
-            >
-              <span>{stage}</span>
-              <span
-                className={`h-2 w-2 rounded-full ${activeStage === index ? "bg-primary" : "bg-muted-foreground/45"}`}
-              />
-            </button>
-          ))}
+          {stages.map((stage, index) => {
+            const isDisabled = DISABLED_STAGE_INDICES.has(index);
+            return (
+              <button
+                key={stage}
+                type="button"
+                disabled={isDisabled}
+                onClick={() => {
+                  if (isDisabled) return;
+                  setActiveStage(index);
+                  setSidebarOpen(false);
+                }}
+                className={`anim-press flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
+                  isDisabled
+                    ? "cursor-not-allowed border-transparent text-muted-foreground/60 opacity-60"
+                    : activeStage === index
+                      ? "text-black dark:text-white border-black/10 shadow-xs shadow-black/10"
+                      : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+                }`}
+              >
+                <span>{stage}</span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    activeStage === index && !isDisabled
+                      ? "bg-primary"
+                      : "bg-muted-foreground/45"
+                  }`}
+                />
+              </button>
+            );
+          })}
         </div>
       </CardHeader>
 
