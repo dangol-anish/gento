@@ -34,10 +34,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--voice", default=None, help="Kokoro voice id (default: read from config/defaults.json).")
     parser.add_argument("--speed", type=float, default=None, help="TTS speed (default: read from config/defaults.json).")
     parser.add_argument("--sample-rate", type=int, default=None, help="Override output sample rate (Hz).")
-    parser.add_argument("--crossfade-ms", type=int, default=60, help="Crossfade between pages (ms).")
     parser.add_argument("--snap-window-ms", type=int, default=150, help="Boundary snapping search window (ms).")
     parser.add_argument("--no-snap", action="store_true", help="Disable pause snapping for panel boundaries.")
-    parser.add_argument("--timing-tts", action="store_true", help="Generate per-panel timing clips for better weighting (slower).")
+    parser.add_argument("--fast", action="store_true", help="Use word-count heuristic for page duration estimates instead of real TTS (faster but less accurate timestamps).")
     parser.add_argument("--silence-threshold-db", type=float, default=-42.0, help="Trim threshold in dBFS.")
     args = parser.parse_args()
 
@@ -84,7 +83,6 @@ def _page_text_from_panels(panels: list[dict[str, Any]]) -> str:
 
 
 def _dbfs_to_linear(threshold_db: float) -> float:
-    # dBFS relative to int16 full-scale.
     return float(10 ** (threshold_db / 20.0))
 
 
@@ -93,7 +91,6 @@ def _int16_max() -> int:
 
 
 def _bytes_to_int16_list(pcm16: bytes) -> list[int]:
-    # Little-endian signed 16-bit.
     out: list[int] = []
     for i in range(0, len(pcm16), 2):
         v = int.from_bytes(pcm16[i : i + 2], "little", signed=True)
@@ -108,7 +105,6 @@ def _int16_list_to_bytes(samples: Sequence[int]) -> bytes:
 def _trim_silence(pcm16: bytes, sample_rate: int, threshold_db: float) -> bytes:
     if not pcm16:
         return pcm16
-    # Use 10ms windows.
     frame_samples = max(1, int(sample_rate * 0.01))
     frame_bytes = frame_samples * 2
     linear = _dbfs_to_linear(threshold_db)
@@ -127,7 +123,6 @@ def _trim_silence(pcm16: bytes, sample_rate: int, threshold_db: float) -> bytes:
     while end - frame_bytes >= start + frame_bytes and frame_is_silent(pcm16[end - frame_bytes : end]):
         end -= frame_bytes
 
-    # If everything is silent, keep a tiny bit to avoid empty wav files.
     if start >= end:
         return pcm16[: min(len(pcm16), frame_bytes)]
     return pcm16[start:end]
@@ -144,7 +139,6 @@ def _rms_normalize(pcm16: bytes, target_dbfs: float = -18.0) -> bytes:
     if target_rms <= 0:
         return pcm16
     factor = target_rms / float(rms)
-    # Prevent insane gain.
     factor = max(0.1, min(10.0, factor))
     return audioop.mul(pcm16, 2, factor)
 
@@ -162,46 +156,6 @@ def _limit_peak(pcm16: bytes, peak_dbfs: float = -1.0) -> bytes:
     return audioop.mul(pcm16, 2, factor)
 
 
-def _apply_fade(pcm16: bytes, sample_rate: int, fade_ms: int = 10) -> bytes:
-    if not pcm16:
-        return pcm16
-    fade_samples = int(sample_rate * (fade_ms / 1000.0))
-    fade_samples = max(1, min(fade_samples, len(pcm16) // 2))
-    samples = _bytes_to_int16_list(pcm16)
-    n = len(samples)
-    for i in range(fade_samples):
-        a = i / float(fade_samples)
-        samples[i] = int(samples[i] * a)
-        samples[n - 1 - i] = int(samples[n - 1 - i] * a)
-    return _int16_list_to_bytes(samples)
-
-
-def _crossfade(a: bytes, b: bytes, sample_rate: int, crossfade_ms: int) -> bytes:
-    if not a:
-        return b
-    if not b:
-        return a
-    cf_samples = int(sample_rate * (crossfade_ms / 1000.0))
-    cf_samples = max(0, cf_samples)
-    a_samp = len(a) // 2
-    b_samp = len(b) // 2
-    if cf_samples <= 0 or a_samp < cf_samples or b_samp < cf_samples:
-        return a + b
-
-    a_list = _bytes_to_int16_list(a)
-    b_list = _bytes_to_int16_list(b)
-    out: list[int] = []
-    out.extend(a_list[:-cf_samples])
-    for i in range(cf_samples):
-        t = i / float(cf_samples - 1) if cf_samples > 1 else 1.0
-        left = a_list[-cf_samples + i]
-        right = b_list[i]
-        mixed = int((1.0 - t) * left + t * right)
-        out.append(mixed)
-    out.extend(b_list[cf_samples:])
-    return _int16_list_to_bytes(out)
-
-
 def _snap_boundary_to_pause(pcm16: bytes, sample_rate: int, center_sample: int, window_ms: int) -> int:
     if not pcm16:
         return center_sample
@@ -214,7 +168,6 @@ def _snap_boundary_to_pause(pcm16: bytes, sample_rate: int, center_sample: int, 
     if end <= start + 1:
         return center_sample
 
-    # Evaluate 10ms frames and pick the lowest-energy frame center.
     frame_samples = max(1, int(sample_rate * 0.01))
     best_idx = center_sample
     best_rms = None
@@ -238,7 +191,6 @@ def _compute_panel_boundaries_samples(
 ) -> list[int]:
     """
     Returns N+1 monotonically increasing boundary sample indices for N panels.
-    Ensures contiguity: panel i is [b[i], b[i+1]].
     """
     n = len(panel_weights_s)
     page_samples = len(page_pcm16) // 2
@@ -253,7 +205,6 @@ def _compute_panel_boundaries_samples(
         weights = [1.0 for _ in range(n)]
         total_w = float(n)
 
-    # Initial cumulative boundaries.
     boundaries = [0]
     cursor = 0
     for idx in range(n):
@@ -268,25 +219,21 @@ def _compute_panel_boundaries_samples(
     boundaries[-1] = page_samples
 
     if snap and n > 1:
-        # Snap internal boundaries, and keep them ordered and non-degenerate.
         for i in range(1, n):
             center = int(boundaries[i])
             snapped = _snap_boundary_to_pause(page_pcm16, sample_rate, center, snap_window_ms)
             boundaries[i] = int(snapped)
 
-        # Enforce monotonicity + at least 1 sample per panel.
         for i in range(1, n):
             boundaries[i] = max(boundaries[i], boundaries[i - 1] + 1)
         for i in range(n - 1, 0, -1):
             boundaries[i] = min(boundaries[i], boundaries[i + 1] - 1)
 
-        # Clamp ends in case the enforcement pushed things out of range.
         boundaries[0] = 0
         boundaries[-1] = page_samples
         for i in range(1, n):
             boundaries[i] = max(0, min(page_samples, boundaries[i]))
 
-        # Final pass: re-enforce (cheap) to guarantee contiguity.
         for i in range(1, n):
             boundaries[i] = max(boundaries[i], boundaries[i - 1] + 1)
         for i in range(n - 1, 0, -1):
@@ -317,11 +264,9 @@ class TtsResult:
 
 
 def _to_pcm16(audio: Any) -> bytes:
-    # Accept list/tuple/iterable of floats [-1..1] or ints.
     if audio is None:
         return b""
     if isinstance(audio, (bytes, bytearray)):
-        # Assume already PCM16.
         return bytes(audio)
     if hasattr(audio, "tolist"):
         audio = audio.tolist()
@@ -354,12 +299,7 @@ _KOKORO_ENGINE: Any | None = None
 
 
 def _pip_install(requirement: str) -> None:
-    """
-    Best-effort dependency bootstrap for local dev.
-    This may require network access and can fail depending on the Python environment.
-    """
     emit("progress", stage=5, message=f"Installing Python dependency: {requirement}...", percent=11)
-    # Prefer user installs outside of venvs to avoid permission issues.
     in_venv = getattr(sys, "base_prefix", sys.prefix) != sys.prefix
     pip_args = [sys.executable, "-m", "pip", "install"]
     if not in_venv:
@@ -394,15 +334,10 @@ def _pip_install(requirement: str) -> None:
 
 
 def _kokoro_tts(text: str, *, voice: str, speed: float) -> TtsResult:
-    """
-    Best-effort Kokoro integration.
-    This is intentionally isolated so unit tests can patch it without requiring kokoro to be installed.
-    """
     global _KOKORO_ENGINE
     try:
         import kokoro  # type: ignore
     except Exception as exc:  # noqa: BLE001
-        # Best-effort: auto-install then retry import.
         try:
             _pip_install("kokoro")
             import kokoro  # type: ignore  # noqa: F401, PLC0415
@@ -417,9 +352,6 @@ def _kokoro_tts(text: str, *, voice: str, speed: float) -> TtsResult:
                 },
             ) from exc2
 
-    # Known variants:
-    # - kokoro.KPipeline (popular)
-    # - kokoro.tts(...) (fallback guess)
     sr: int | None = None
     audio_buf: Any = None
 
@@ -427,7 +359,6 @@ def _kokoro_tts(text: str, *, voice: str, speed: float) -> TtsResult:
         if _KOKORO_ENGINE is None:
             _KOKORO_ENGINE = kokoro.KPipeline(lang_code="a")  # type: ignore[attr-defined]
         pipe = _KOKORO_ENGINE
-        # Some implementations yield segments; others return (audio, sr).
         try:
             result = pipe(text, voice=voice, speed=speed)  # type: ignore[misc]
         except TypeError:
@@ -435,7 +366,6 @@ def _kokoro_tts(text: str, *, voice: str, speed: float) -> TtsResult:
         if isinstance(result, tuple) and len(result) >= 2:
             audio_buf, sr = result[0], int(result[1])
         else:
-            # Try to collect generator-like segments.
             chunks: list[bytes] = []
             chunk_sr: int | None = None
             for item in result:  # type: ignore[assignment]
@@ -457,7 +387,6 @@ def _kokoro_tts(text: str, *, voice: str, speed: float) -> TtsResult:
                                 s = None
                             break
                 else:
-                    # Common pattern: a segment object with .audio / .samples and .sample_rate / .sr
                     if hasattr(item, "audio"):
                         a = getattr(item, "audio")
                     elif hasattr(item, "samples"):
@@ -479,7 +408,6 @@ def _kokoro_tts(text: str, *, voice: str, speed: float) -> TtsResult:
                     chunk_sr = s
                 chunks.append(_to_pcm16(a))
             if chunk_sr is None:
-                # Fall back to default SR if the pipeline doesn't expose it.
                 chunk_sr = 24000
             sr = chunk_sr
             audio_buf = b"".join(chunks)
@@ -506,6 +434,68 @@ def _resample_if_needed(pcm16: bytes, src_sr: int, dst_sr: int) -> bytes:
     return converted
 
 
+def _estimate_page_duration_s(
+    panels: list[dict[str, Any]],
+    *,
+    voice: str,
+    speed: float,
+    sample_rate: int,
+    silence_db: float,
+    do_timing_tts: bool,
+) -> float:
+    """
+    Estimate how long the narration for a page will be.
+
+    When --timing-tts is set we generate real TTS for the page text and
+    measure it precisely.  Otherwise we fall back to a fast word-count
+    heuristic (about 0.28 s/word at normal speed, scaled by 1/speed).
+    """
+    page_text = _page_text_from_panels(panels)
+    if not page_text:
+        return 0.0
+
+    if do_timing_tts:
+        tts = _kokoro_tts(page_text, voice=voice, speed=speed)
+        pcm = _resample_if_needed(tts.pcm16, tts.sample_rate, sample_rate)
+        pcm = _trim_silence(pcm, sample_rate, silence_db)
+        return max(0.05, _duration_s(pcm, sample_rate))
+    else:
+        word_count = len(page_text.split())
+        # ~0.28 s/word at speed=1.0; faster speed → fewer seconds.
+        return max(0.15, word_count * 0.28 / max(0.1, speed))
+
+
+def _estimate_panel_weights(
+    panels: list[dict[str, Any]],
+    *,
+    voice: str,
+    speed: float,
+    sample_rate: int,
+    silence_db: float,
+    do_timing_tts: bool,
+) -> list[float]:
+    """
+    Estimate the relative duration weight for each panel within a page.
+    Uses the same TTS / heuristic choice as _estimate_page_duration_s.
+    """
+    weights: list[float] = []
+    for panel in panels:
+        s = panel.get("sentence")
+        if not isinstance(s, str) or not s.strip():
+            weights.append(0.2)
+            continue
+        s_norm = _ensure_sentence_punctuation(s)
+        if do_timing_tts:
+            tts = _kokoro_tts(s_norm, voice=voice, speed=speed)
+            pcm = _resample_if_needed(tts.pcm16, tts.sample_rate, sample_rate)
+            pcm = _trim_silence(pcm, sample_rate, silence_db)
+            w = max(0.05, _duration_s(pcm, sample_rate))
+        else:
+            w = max(0.15, float(len(s_norm.split())) * 0.28 / max(0.1, speed))
+        weights.append(float(w))
+    return weights
+
+
 def _run_stage() -> None:
     args = parse_args()
     in_path = Path(args.refined_recap_pages).expanduser()
@@ -520,13 +510,12 @@ def _run_stage() -> None:
     defaults = _read_defaults()
     voice = str(args.voice or defaults.get("tts_voice") or "am_echo")
     speed = float(args.speed if args.speed is not None else float(defaults.get("tts_speed") or 1.0))
-    target_sr = int(args.sample_rate) if isinstance(args.sample_rate, int) and args.sample_rate else None
+    target_sr: int | None = int(args.sample_rate) if isinstance(args.sample_rate, int) and args.sample_rate else None
 
     silence_db = float(args.silence_threshold_db)
-    crossfade_ms = int(max(0, args.crossfade_ms))
     snap_window_ms = int(max(0, args.snap_window_ms))
     do_snap = not bool(args.no_snap)
-    do_timing_tts = bool(args.timing_tts)
+    do_timing_tts = not bool(args.fast)
 
     emit("progress", stage=5, message="Loading recap_pages_with_sentences.json...", percent=5)
     doc = _read_json(in_path)
@@ -536,109 +525,187 @@ def _run_stage() -> None:
     if not isinstance(pages, list) or not pages:
         raise invalid_request("Expected non-empty pages[].", {"path": str(in_path)})
 
-    # Sort pages deterministically.
-    pages_sorted: list[dict[str, Any]] = [p for p in pages if isinstance(p, dict) and isinstance(p.get("page_idx"), int)]
+    pages_sorted: list[dict[str, Any]] = [
+        p for p in pages if isinstance(p, dict) and isinstance(p.get("page_idx"), int)
+    ]
     pages_sorted.sort(key=lambda p: int(p.get("page_idx") or 0))
     if not pages_sorted:
         raise invalid_request("No pages[] entries with page_idx.", {"path": str(in_path)})
 
-    emit("progress", stage=5, message="Generating per-page audio with Kokoro...", percent=10)
+    # -------------------------------------------------------------------------
+    # Pass 1: collect per-page panels and estimate durations.
+    #
+    # This pass never touches the final audio.  Its only job is to figure out
+    # how long each page's narration will be so we can carve up the single
+    # full-chapter audio into proportional timestamps afterwards.
+    #
+    # We also collect per-panel weights here so the panel-boundary logic in
+    # pass 3 has something to work with.
+    # -------------------------------------------------------------------------
+    emit("progress", stage=5, message="Estimating per-page durations...", percent=10)
 
-    per_page_audio: dict[int, TtsResult] = {}
     per_page_panels: dict[int, list[dict[str, Any]]] = {}
+    per_page_duration_s: dict[int, float] = {}
+    per_page_panel_weights: dict[int, list[float]] = {}
 
-    # First pass: generate page audio.
-    for i, page in enumerate(pages_sorted, start=1):
+    # We need a sample rate before we can do timing-TTS properly.
+    # If the user didn't specify one, probe it with a quick single-word call.
+    if target_sr is None:
+        probe = _kokoro_tts("Hello.", voice=voice, speed=speed)
+        target_sr = probe.sample_rate
+        emit("progress", stage=5, message=f"Detected TTS sample rate: {target_sr} Hz", percent=12)
+
+    active_pages = [
+        p for p in pages_sorted
+        if isinstance(p.get("panels"), list) and any(isinstance(x, dict) for x in p["panels"])
+    ]
+
+    for i, page in enumerate(active_pages, start=1):
         page_idx = int(page.get("page_idx") or 0)
-        panels = page.get("panels") if isinstance(page.get("panels"), list) else []
-        panels_clean = [p for p in panels if isinstance(p, dict)]
-        if not panels_clean:
-            continue
-        per_page_panels[page_idx] = panels_clean
+        panels = [p for p in page["panels"] if isinstance(p, dict)]
+        per_page_panels[page_idx] = panels
 
-        page_text = _page_text_from_panels(panels_clean)
+        page_text = _page_text_from_panels(panels)
         if not page_text:
+            per_page_duration_s[page_idx] = 0.0
+            per_page_panel_weights[page_idx] = [0.2 for _ in panels]
             continue
 
-        percent = 10 + int((i / max(1, len(pages_sorted))) * 45)
-        emit("progress", stage=5, message=f"TTS page {i}/{len(pages_sorted)} (page_idx={page_idx})...", percent=percent)
-        tts = _kokoro_tts(page_text, voice=voice, speed=speed)
-        sr = tts.sample_rate
-        if target_sr is None:
-            target_sr = sr
-        pcm = _resample_if_needed(tts.pcm16, sr, int(target_sr))
-        pcm = _trim_silence(pcm, int(target_sr), silence_db)
-        pcm = _rms_normalize(pcm, target_dbfs=-18.0)
-        pcm = _limit_peak(pcm, peak_dbfs=-1.0)
-        pcm = _apply_fade(pcm, int(target_sr), fade_ms=10)
-        per_page_audio[page_idx] = TtsResult(pcm16=pcm, sample_rate=int(target_sr))
+        percent = 12 + int((i / max(1, len(active_pages))) * 28)
+        emit(
+            "progress",
+            stage=5,
+            message=f"Estimating duration page {i}/{len(active_pages)} (page_idx={page_idx})...",
+            percent=percent,
+        )
 
-        _write_wav(out_dir / f"page_{page_idx:03d}.wav", pcm, int(target_sr))
+        dur = _estimate_page_duration_s(
+            panels,
+            voice=voice,
+            speed=speed,
+            sample_rate=target_sr,
+            silence_db=silence_db,
+            do_timing_tts=do_timing_tts,
+        )
+        per_page_duration_s[page_idx] = dur
 
-    if not per_page_audio:
-        raise stage_failed("No page audio generated.", {"hint": "Check that Stage 4 sentences are non-empty."})
+        weights = _estimate_panel_weights(
+            panels,
+            voice=voice,
+            speed=speed,
+            sample_rate=target_sr,
+            silence_db=silence_db,
+            # Panel weights always use heuristic to avoid 2× TTS calls per panel.
+            # Only the page-level duration benefits from --timing-tts precision.
+            do_timing_tts=False,
+        )
+        per_page_panel_weights[page_idx] = weights
 
-    # Second pass: estimate per-panel weights.
-    emit("progress", stage=5, message="Estimating panel timing weights...", percent=60)
-    per_page_panel_weights_s: dict[int, list[float]] = {}
-    for i, page in enumerate(pages_sorted, start=1):
+    if not per_page_duration_s:
+        raise stage_failed("No usable pages found.", {"hint": "Check that Stage 4 sentences are non-empty."})
+
+    total_estimated_s = sum(per_page_duration_s.values())
+    if total_estimated_s <= 0:
+        raise stage_failed("All estimated page durations are zero.", {"hint": "Check panel sentences."})
+
+    # -------------------------------------------------------------------------
+    # Pass 2: generate the full chapter as a single TTS call.
+    #
+    # We join every page's text in order, separated by a double space so the
+    # TTS model treats them as distinct sentences rather than running them
+    # together.  The result is one continuous, naturally-prosodied narration
+    # with no resets, no stitching seams, and no per-page energy spikes.
+    # -------------------------------------------------------------------------
+    emit("progress", stage=5, message="Building full chapter text...", percent=42)
+
+    chapter_parts: list[str] = []
+    for page in pages_sorted:
         page_idx = int(page.get("page_idx") or 0)
-        if page_idx not in per_page_audio:
+        panels = per_page_panels.get(page_idx)
+        if not panels:
             continue
-        panels = per_page_panels.get(page_idx, [])
-        weights: list[float] = []
-        for panel in panels:
-            s = panel.get("sentence")
-            if not isinstance(s, str) or not s.strip():
-                weights.append(0.2)
-                continue
-            s_norm = _ensure_sentence_punctuation(s)
-            if do_timing_tts:
-                tts = _kokoro_tts(s_norm, voice=voice, speed=speed)
-                pcm = _resample_if_needed(tts.pcm16, tts.sample_rate, per_page_audio[page_idx].sample_rate)
-                pcm = _trim_silence(pcm, per_page_audio[page_idx].sample_rate, silence_db)
-                w = max(0.05, _duration_s(pcm, per_page_audio[page_idx].sample_rate))
-            else:
-                # Fast fallback: word-count heuristic.
-                w = max(0.15, float(len(s_norm.split())) * 0.28)
-            weights.append(float(w))
-        per_page_panel_weights_s[page_idx] = weights
-        if i % 5 == 0:
-            percent = 60 + int((i / max(1, len(pages_sorted))) * 10)
-            emit("progress", stage=5, message="Estimating panel weights...", percent=percent)
+        page_text = _page_text_from_panels(panels)
+        if page_text:
+            chapter_parts.append(page_text)
 
-    # Third pass: build stitched audio and compute timestamps.
-    emit("progress", stage=5, message="Stitching pages and computing panel timestamps...", percent=75)
+    if not chapter_parts:
+        raise stage_failed("No page text to narrate.", {"hint": "Check panel sentences."})
 
-    stitched_pcm: bytes = b""
-    stitched_sr = next(iter(per_page_audio.values())).sample_rate
-    crossfade_samples = int(stitched_sr * (crossfade_ms / 1000.0))
-    running_samples = 0
+    # Two spaces between pages gives Kokoro a natural inter-sentence pause
+    # without introducing an explicit break token.
+    full_chapter_text = "  ".join(chapter_parts)
+
+    emit("progress", stage=5, message="Generating full chapter TTS (one continuous call)...", percent=45)
+    full_tts = _kokoro_tts(full_chapter_text, voice=voice, speed=speed)
+
+    full_pcm = _resample_if_needed(full_tts.pcm16, full_tts.sample_rate, target_sr)
+    full_pcm = _trim_silence(full_pcm, target_sr, silence_db)
+    full_pcm = _rms_normalize(full_pcm, target_dbfs=-18.0)
+    full_pcm = _limit_peak(full_pcm, peak_dbfs=-1.0)
+
+    full_duration_s = _duration_s(full_pcm, target_sr)
+    if full_duration_s <= 0:
+        raise stage_failed("Full chapter TTS produced empty audio.", {})
+
+    emit(
+        "progress",
+        stage=5,
+        message=f"Full chapter audio: {full_duration_s:.1f}s (estimated {total_estimated_s:.1f}s)",
+        percent=75,
+    )
+
+    # -------------------------------------------------------------------------
+    # Pass 3: carve timestamps proportionally and compute panel boundaries.
+    #
+    # Each page's share of the full audio is:
+    #   page_frac = page_duration_estimate / total_duration_estimate
+    #   page_real_duration = page_frac * full_duration_s
+    #
+    # Within each page slice we subdivide by panel weights exactly as before,
+    # using the existing _compute_panel_boundaries_samples logic against the
+    # relevant slice of the full PCM buffer.
+    # -------------------------------------------------------------------------
+    emit("progress", stage=5, message="Carving timestamps and computing panel boundaries...", percent=80)
 
     pages_out: list[dict[str, Any]] = []
+    cursor_samples = 0
 
     for i, page in enumerate(pages_sorted, start=1):
         page_idx = int(page.get("page_idx") or 0)
-        page_audio = per_page_audio.get(page_idx)
-        if page_audio is None:
+        panels = per_page_panels.get(page_idx)
+        if not panels:
             continue
-        if page_audio.sample_rate != stitched_sr:
-            raise stage_failed("Mismatched sample rates between pages.", {"expected": stitched_sr, "got": page_audio.sample_rate})
 
-        # Page starts at current end, minus crossfade overlap if we already have content.
-        page_start_sample = running_samples - (crossfade_samples if stitched_pcm else 0)
-        page_start_sample = max(0, page_start_sample)
+        est_dur = per_page_duration_s.get(page_idx, 0.0)
+        if est_dur <= 0:
+            continue
 
-        # Compute panel boundaries inside this page audio.
-        panels = per_page_panels.get(page_idx, [])
-        weights = per_page_panel_weights_s.get(page_idx, [1.0 for _ in panels])
+        page_frac = est_dur / total_estimated_s
+        page_samples = int(round(page_frac * (len(full_pcm) // 2)))
+
+        # Last page gets whatever samples remain to avoid rounding drift.
+        remaining_pages_with_audio = sum(
+            1 for p in pages_sorted[i:]
+            if per_page_duration_s.get(int(p.get("page_idx") or 0), 0.0) > 0
+        )
+        if remaining_pages_with_audio == 0:
+            page_samples = max(0, (len(full_pcm) // 2) - cursor_samples)
+
+        page_samples = max(0, min(page_samples, (len(full_pcm) // 2) - cursor_samples))
+
+        page_start_sample = cursor_samples
+        page_end_sample = cursor_samples + page_samples
+
+        # Slice of the full audio for this page (used for pause snapping).
+        page_slice_pcm = full_pcm[page_start_sample * 2 : page_end_sample * 2]
+
+        weights = per_page_panel_weights.get(page_idx, [1.0 for _ in panels])
         if len(weights) != len(panels):
             weights = [1.0 for _ in panels]
 
-        page_samples = len(page_audio.pcm16) // 2
         boundaries = _compute_panel_boundaries_samples(
-            page_pcm16=page_audio.pcm16,
-            sample_rate=stitched_sr,
+            page_pcm16=page_slice_pcm,
+            sample_rate=target_sr,
             panel_weights_s=weights,
             snap=do_snap,
             snap_window_ms=snap_window_ms,
@@ -646,19 +713,20 @@ def _run_stage() -> None:
 
         panel_entries: list[dict[str, Any]] = []
         for idx, panel in enumerate(panels):
-            start = int(boundaries[idx]) if idx < len(boundaries) else 0
-            end = int(boundaries[idx + 1]) if idx + 1 < len(boundaries) else page_samples
+            local_start = int(boundaries[idx]) if idx < len(boundaries) else 0
+            local_end = int(boundaries[idx + 1]) if idx + 1 < len(boundaries) else page_samples
 
-            start_ms = int(round(((page_start_sample + start) / stitched_sr) * 1000.0))
-            end_ms = int(round(((page_start_sample + end) / stitched_sr) * 1000.0))
+            abs_start_ms = int(round(((page_start_sample + local_start) / target_sr) * 1000.0))
+            abs_end_ms = int(round(((page_start_sample + local_end) / target_sr) * 1000.0))
+
             panel_entries.append(
                 {
                     "sub_panel_idx": int(panel.get("sub_panel_idx") or 0),
                     "panel_id": panel.get("panel_id"),
                     "crop_path": panel.get("crop_path"),
                     "sentence": panel.get("sentence"),
-                    "start_ms": start_ms,
-                    "end_ms": end_ms,
+                    "start_ms": abs_start_ms,
+                    "end_ms": abs_end_ms,
                 }
             )
 
@@ -666,34 +734,31 @@ def _run_stage() -> None:
             {
                 "page_idx": page_idx,
                 "recap": page.get("recap", ""),
-                "audio_path": str(out_dir / f"page_{page_idx:03d}.wav"),
-                "start_ms": int(round((page_start_sample / stitched_sr) * 1000.0)),
-                "end_ms": int(round(((page_start_sample + page_samples) / stitched_sr) * 1000.0)),
+                "start_ms": int(round((page_start_sample / target_sr) * 1000.0)),
+                "end_ms": int(round((page_end_sample / target_sr) * 1000.0)),
                 "panels": panel_entries,
             }
         )
 
-        # Stitch audio.
-        if not stitched_pcm:
-            stitched_pcm = page_audio.pcm16
-            running_samples = len(stitched_pcm) // 2
-        else:
-            stitched_pcm = _crossfade(stitched_pcm, page_audio.pcm16, stitched_sr, crossfade_ms)
-            running_samples = len(stitched_pcm) // 2
+        cursor_samples += page_samples
 
         if i % 5 == 0:
-            percent = 75 + int((i / max(1, len(pages_sorted))) * 20)
-            emit("progress", stage=5, message="Stitching pages...", percent=percent)
+            percent = 80 + int((i / max(1, len(pages_sorted))) * 15)
+            emit("progress", stage=5, message="Computing panel timestamps...", percent=percent)
 
-    stitched_path = out_dir / "narration_stitched.wav"
-    emit("progress", stage=5, message="Writing stitched narration...", percent=95)
-    _write_wav(stitched_path, stitched_pcm, stitched_sr)
+    # -------------------------------------------------------------------------
+    # Write outputs.
+    # -------------------------------------------------------------------------
+    narration_path = out_dir / "narration.wav"
+    emit("progress", stage=5, message="Writing narration audio...", percent=95)
+    _write_wav(narration_path, full_pcm, target_sr)
 
     final_doc = {
         "mode": "page",
         "source_refined_recap_path": str(in_path),
-        "audio_path": str(stitched_path),
-        "sample_rate": stitched_sr,
+        "audio_path": str(narration_path),
+        "sample_rate": target_sr,
+        "total_duration_ms": int(round(full_duration_s * 1000.0)),
         "pages": pages_out,
     }
     out_json.parent.mkdir(parents=True, exist_ok=True)
@@ -703,11 +768,13 @@ def _run_stage() -> None:
     emit(
         "complete",
         stage=5,
-        stitched_audio_path=str(stitched_path),
+        narration_audio_path=str(narration_path),
         final_script_path=str(out_json),
         audio_dir=str(out_dir),
         voice=voice,
         speed=speed,
+        full_duration_s=round(full_duration_s, 3),
+        total_estimated_s=round(total_estimated_s, 3),
     )
 
 
