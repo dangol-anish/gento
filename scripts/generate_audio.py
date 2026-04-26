@@ -518,7 +518,7 @@ def _run_stage() -> None:
     )
 
     defaults = _read_defaults()
-    voice = str(args.voice or defaults.get("tts_voice") or "af_heart")
+    voice = str(args.voice or defaults.get("tts_voice") or "am_echo")
     speed = float(args.speed if args.speed is not None else float(defaults.get("tts_speed") or 1.0))
     target_sr = int(args.sample_rate) if isinstance(args.sample_rate, int) and args.sample_rate else None
 

@@ -6,6 +6,6 @@
   "magi_model": "ragavsachdeva/magiv3",
   "magi_device": "cpu",
   "reading_direction": "rtl",
-  "tts_voice": "af_heart",
-  "tts_speed": 1.0
+  "tts_voice": "am_echo",
+  "tts_speed": 1.2
 }

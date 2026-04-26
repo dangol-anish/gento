@@ -2,11 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import { FiFolder } from "react-icons/fi";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
 import { formatRuntimeError } from "@/lib/runtimeErrors";
-import { buildStage5Args, extractCompleteSummary, extractLastPercent } from "@/lib/stage5";
+import {
+  buildStage5Args,
+  extractCompleteSummary,
+  extractLastPercent,
+} from "@/lib/stage5";
 
 export type Stage5Session = {
   mangaUrl: string;
@@ -25,15 +35,19 @@ type Props = {
 
 export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
   const toast = useToast();
-  const [refinedRecapPagesPath, setRefinedRecapPagesPath] = useState("./output/final/recap_pages_with_sentences.json");
-  const [voice, setVoice] = useState("af_heart");
-  const [speed, setSpeed] = useState(1.0);
+  const [refinedRecapPagesPath, setRefinedRecapPagesPath] = useState(
+    "./output/final/recap_pages_with_sentences.json",
+  );
+  const [voice, setVoice] = useState("am_echo");
+  const [speed, setSpeed] = useState(1.2);
   const [timingTts, setTimingTts] = useState(false);
 
   const [isRunningStage, setIsRunningStage] = useState(false);
   const [hasStageStarted, setHasStageStarted] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [stageMessage, setStageMessage] = useState("Ready to generate audio (Stage 5).");
+  const [stageMessage, setStageMessage] = useState(
+    "Ready to generate audio (Stage 5).",
+  );
   const [lastOutputDir, setLastOutputDir] = useState("./output/final/audio");
 
   useEffect(() => {
@@ -59,7 +73,13 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       lastOutputDir,
       stageMessage,
     }),
-    [isRunningStage, lastOutputDir, progress, refinedRecapPagesPath, stageMessage],
+    [
+      isRunningStage,
+      lastOutputDir,
+      progress,
+      refinedRecapPagesPath,
+      stageMessage,
+    ],
   );
 
   useEffect(() => {
@@ -95,13 +115,21 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       }
 
       if (payload.type === "complete") {
-        const outScript = payload.final_script_path ? payload.final_script_path : "";
-        const outAudio = payload.stitched_audio_path ? payload.stitched_audio_path : "";
+        const outScript = payload.final_script_path
+          ? payload.final_script_path
+          : "";
+        const outAudio = payload.stitched_audio_path
+          ? payload.stitched_audio_path
+          : "";
         setProgress(100);
         setStageMessage(payload.message ?? "Stage 5 complete.");
         toast.success(
           "Stage 5 complete",
-          outScript ? `Wrote ${outScript}` : outAudio ? `Wrote ${outAudio}` : "Audio outputs written.",
+          outScript
+            ? `Wrote ${outScript}`
+            : outAudio
+              ? `Wrote ${outAudio}`
+              : "Audio outputs written.",
         );
         setIsRunningStage(false);
         setHasStageStarted(false);
@@ -114,7 +142,10 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
             ? (payload.error as { message?: string }).message
             : undefined;
         setStageMessage(errorMessage || payload.message || "Stage 5 failed.");
-        toast.error("Stage 5 failed", errorMessage || payload.message || "Stage 5 failed.");
+        toast.error(
+          "Stage 5 failed",
+          errorMessage || payload.message || "Stage 5 failed.",
+        );
         setProgress(0);
         setIsRunningStage(false);
         setHasStageStarted(false);
@@ -126,11 +157,15 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
 
   const handleRunStage5 = async () => {
     if (!refinedRecapPagesPath.trim()) {
-      setStageMessage("Please provide the recap_pages_with_sentences.json path.");
+      setStageMessage(
+        "Please provide the recap_pages_with_sentences.json path.",
+      );
       return;
     }
     if (!window.gento || typeof window.gento.runStage !== "function") {
-      setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
+      setStageMessage(
+        "Desktop bridge is unavailable. Restart Electron to reload preload.",
+      );
       return;
     }
     if (isRunningStage || hasStageStarted) {
@@ -152,7 +187,11 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
     try {
       const result = await window.gento.runStage(5, args);
       if (!result.ok) {
-        const message = formatRuntimeError(result.error.code, result.error.message, result.error.details);
+        const message = formatRuntimeError(
+          result.error.code,
+          result.error.message,
+          result.error.details,
+        );
         setStageMessage(message);
         toast.error("Stage 5 failed", message);
         setProgress(0);
@@ -189,7 +228,9 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
 
   const handleOpenFolder = async () => {
     if (!window.gento?.openPath) {
-      setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
+      setStageMessage(
+        "Desktop bridge is unavailable. Restart Electron to reload preload.",
+      );
       return;
     }
     const result = await window.gento.openPath(lastOutputDir);
@@ -204,7 +245,10 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
     <Card className="lg:flex lg:flex-col lg:min-h-0 lg:h-full">
       <CardHeader className="border-b border-border/60 p-5">
         <CardTitle>Stage 5 Audio</CardTitle>
-        <CardDescription>Generate narration audio and per-panel timestamps from Stage 4 outputs.</CardDescription>
+        <CardDescription>
+          Generate narration audio and per-panel timestamps from Stage 4
+          outputs.
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-5 p-5 pt-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
@@ -230,7 +274,7 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
               type="text"
               value={voice}
               onChange={(event) => setVoice(event.target.value)}
-              placeholder="af_heart"
+              placeholder="am_echo"
               className="glass-interactive h-10 w-full rounded-xl border px-3 text-sm text-foreground outline-none"
             />
           </div>
@@ -262,10 +306,18 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
         </label>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={handleRunStage5} disabled={isRunningStage} className="rounded-xl">
+          <Button
+            onClick={handleRunStage5}
+            disabled={isRunningStage}
+            className="rounded-xl"
+          >
             Run Stage 5
           </Button>
-          <Button variant="secondary" onClick={handleOpenFolder} className="gap-2 rounded-xl">
+          <Button
+            variant="secondary"
+            onClick={handleOpenFolder}
+            className="gap-2 rounded-xl"
+          >
             <FiFolder className="h-4 w-4" />
             Open folder
           </Button>
@@ -282,4 +334,3 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
     </Card>
   );
 }
-

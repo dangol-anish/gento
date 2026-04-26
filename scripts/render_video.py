@@ -37,6 +37,18 @@ def parse_args() -> argparse.Namespace:
     # Transition duration: 48 frames = 2 seconds at 24fps. Smooth and readable.
     parser.add_argument("--transition-frames", type=int, default=48, help="Number of frames for fly-in transition (default: 48, i.e. 2s at 24fps).")
     parser.add_argument(
+        "--bg-blur-sigma",
+        type=float,
+        default=30.0,
+        help="Gaussian blur sigma for the zoomed background (default: 30). Higher = more blur.",
+    )
+    parser.add_argument(
+        "--bg-zoom",
+        type=float,
+        default=10.0,
+        help="Zoom factor applied to the panel before blurring it into the background (default: 10).",
+    )
+    parser.add_argument(
         "--ffmpeg-loglevel",
         default="error",
         choices=["quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug", "trace"],
@@ -128,6 +140,86 @@ def _collect_panels(
 
 
 # ---------------------------------------------------------------------------
+# Blurred background helper
+#
+# Builds the two-layer composite used everywhere in this stage:
+#
+#   [bg_layer]  = panel scaled to COVER the full canvas (zoom factor applied),
+#                 then gaussian-blurred heavily. This fills the entire frame
+#                 with no black bars — exactly like recap / YouTube Shorts style.
+#
+#   [fg_layer]  = panel scaled to FIT inside the canvas (letterbox/pillarbox
+#                 geometry, but transparent/invisible outside the image because
+#                 the bg fills it).
+#
+#   composite   = overlay fg centered on bg.
+#
+# The zoom on the bg is intentionally large (default ×10) so even a 1:1 square
+# panel completely fills a 16:9 frame with no black visible at the edges after
+# blurring smears the boundary pixels.
+# ---------------------------------------------------------------------------
+
+def _bg_fg_filtergraph(
+    *,
+    width: int,
+    height: int,
+    pix_fmt: str,
+    bg_zoom: float,
+    bg_blur_sigma: float,
+    input_tag: str = "0:v",
+) -> tuple[str, str]:
+    """
+    Return (bg_chain, fg_chain) as filtergraph fragment strings.
+
+    bg_chain: takes [input_tag], produces [bg] — blurred zoomed background.
+    fg_chain: takes [input_tag], produces [fg] — sharp fitted foreground.
+
+    The caller is responsible for the final overlay and format steps.
+
+    bg strategy:
+      scale to (width*zoom) x (height*zoom) using force_original_aspect_ratio=increase
+      (ensures the image completely covers the canvas even for extreme aspect ratios),
+      then crop to exactly width x height from the centre,
+      then gblur.
+
+    fg strategy:
+      scale to fit within width x height (decrease), keeping aspect ratio.
+      No padding needed — the bg fills any gap.
+    """
+    zoom = max(1.0, float(bg_zoom))
+    sigma = max(1.0, float(bg_blur_sigma))
+
+    bg_w = int(width * zoom)
+    bg_h = int(height * zoom)
+
+    # Round up to even numbers (required by many codecs).
+    if bg_w % 2:
+        bg_w += 1
+    if bg_h % 2:
+        bg_h += 1
+
+    bg_chain = (
+        f"[{input_tag}]scale={bg_w}:{bg_h}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},"
+        f"gblur=sigma={sigma:.1f},"
+        f"setsar=1[bg]"
+    )
+
+    fg_chain = (
+        f"[{input_tag}]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"setsar=1[fg]"
+    )
+
+    return bg_chain, fg_chain
+
+
+def _overlay_expr(width: int, height: int) -> tuple[str, str]:
+    """Return (x_expr, y_expr) to center [fg] on [bg]."""
+    # (W-w)/2  and  (H-h)/2  in ffmpeg overlay syntax.
+    return f"(W-w)/2", f"(H-h)/2"
+
+
+# ---------------------------------------------------------------------------
 # Transition system
 #
 # Each transition is a short "fly-in": the panel slides from off-screen to its
@@ -148,8 +240,6 @@ def _collect_panels(
 #   from_right  : panel enters from right edge
 #   from_top    : panel enters from top edge
 #   from_bottom : panel enters from bottom edge
-#   zoom_in     : panel scales up from ~20% to 100%
-#   zoom_out    : panel scales down from 150% to 100%
 # ---------------------------------------------------------------------------
 
 _TRANSITION_KINDS = ["from_left", "from_right", "from_top", "from_bottom"]
@@ -167,15 +257,19 @@ def _build_intro_segment_filtergraph(
     fps: int,
     transition_frames: int,
     pix_fmt: str,
+    bg_zoom: float,
+    bg_blur_sigma: float,
 ) -> str:
     """
     Return an ffmpeg -vf filter string that takes a single still image (input [0:v])
     and produces `transition_frames` frames of animation where the panel flies
-    in from the chosen direction.
+    in from the chosen direction — over a blurred zoomed background.
 
     Easing uses smoothstep: s(t) = 3t^2 - 2t^3  (ease-in-out, no bounce).
 
-    The input image is assumed to already be scaled to width x height.
+    The blurred background is static throughout the transition (it's already
+    full-frame so it doesn't need to move). Only the sharp foreground panel
+    slides in.
     """
     N = max(2, transition_frames)
     Nm1 = N - 1
@@ -183,50 +277,79 @@ def _build_intro_segment_filtergraph(
     W = width
     H = height
 
-    # Smoothstep ease-in-out: s(t) = 3t^2 - 2t^3, where t = n/Nm1
-    # Position offset = start_offset * (1 - s(t))  →  travels from start_offset to 0
-    # In ffmpeg expression syntax (t = n/Nm1):
-    #   t_expr   = "n/{Nm1}"
-    #   smooth   = "3*(n/{Nm1})^2 - 2*(n/{Nm1})^3"   — but ffmpeg uses pow()
-    #   residual = "1 - smooth"  =  "(1-(n/{Nm1}))^2 * (1+2*(n/{Nm1}))"
-    #            (factored form of 1-smoothstep, avoids needing subtraction of a cube)
-    # Factored residual (easier for ffmpeg parser):
-    #   residual(t) = (1-t)^2 * (1+2t)
-    # This equals 1 at t=0 and 0 at t=1 — exactly what we need.
-
+    # Smoothstep residual: (1-t)^2*(1+2t) — goes from 1→0 as t goes 0→1.
     def residual(t_var: str) -> str:
-        """ffmpeg expression for (1-t)^2*(1+2t) using t_var as the t expression."""
         return f"(1-{t_var})*(1-{t_var})*(1+2*{t_var})"
 
     t_expr = f"n/{Nm1}"
     res = residual(t_expr)
 
-    if kind in ("from_left", "from_right", "from_top", "from_bottom"):
-        if kind == "from_left":
-            x_expr = f"({-W}*{res})"
-            y_expr = "0"
-        elif kind == "from_right":
-            x_expr = f"({W}*{res})"
-            y_expr = "0"
-        elif kind == "from_top":
-            x_expr = "0"
-            y_expr = f"({-H}*{res})"
-        else:  # from_bottom
-            x_expr = "0"
-            y_expr = f"({H}*{res})"
+    if kind == "from_left":
+        x_base = f"({-W}*{res})"
+        y_base = "0"
+    elif kind == "from_right":
+        x_base = f"({W}*{res})"
+        y_base = "0"
+    elif kind == "from_top":
+        x_base = "0"
+        y_base = f"({-H}*{res})"
+    else:  # from_bottom
+        x_base = "0"
+        y_base = f"({H}*{res})"
 
-        vf = (
-            f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
-            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"setsar=1[panel_scaled];"
-            f"color=black:size={W}x{H}:rate={fps}[bg];"
-            f"[bg][panel_scaled]overlay=x='{x_expr}':y='{y_expr}':shortest=1,"
-            f"trim=end_frame={N},setpts=PTS-STARTPTS,"
-            f"format={pix_fmt}"
-        )
-        return vf
+    # Final overlay position = center + slide offset.
+    # Center of fg on bg: (W-w)/2, (H-h)/2.
+    x_expr = f"(W-w)/2+{x_base}"
+    y_expr = f"(H-h)/2+{y_base}"
+
+    bg_chain, fg_chain = _bg_fg_filtergraph(
+        width=W,
+        height=H,
+        pix_fmt=pix_fmt,
+        bg_zoom=bg_zoom,
+        bg_blur_sigma=bg_blur_sigma,
+        input_tag="0:v",
+    )
+
+    vf = (
+        f"{bg_chain};"
+        f"{fg_chain};"
+        f"[bg][fg]overlay=x='{x_expr}':y='{y_expr}':shortest=1,"
+        f"trim=end_frame={N},setpts=PTS-STARTPTS,"
+        f"format={pix_fmt}[out]"
+    )
+    return vf
 
 
+def _build_static_filtergraph(
+    *,
+    width: int,
+    height: int,
+    pix_fmt: str,
+    bg_zoom: float,
+    bg_blur_sigma: float,
+) -> str:
+    """
+    Return an ffmpeg -vf filter string for a static panel frame:
+    blurred zoomed background + sharp centered foreground.
+    """
+    bg_chain, fg_chain = _bg_fg_filtergraph(
+        width=width,
+        height=height,
+        pix_fmt=pix_fmt,
+        bg_zoom=bg_zoom,
+        bg_blur_sigma=bg_blur_sigma,
+        input_tag="0:v",
+    )
+    x_expr, y_expr = _overlay_expr(width, height)
+
+    vf = (
+        f"{bg_chain};"
+        f"{fg_chain};"
+        f"[bg][fg]overlay=x='{x_expr}':y='{y_expr}',"
+        f"format={pix_fmt}[out]"
+    )
+    return vf
 
 
 def _run_ffmpeg_streaming(cmd: list[str]) -> tuple[int, str]:
@@ -262,6 +385,8 @@ def _render_panel_with_transition(
     preset: str,
     video_bitrate: str,
     pix_fmt: str,
+    bg_zoom: float,
+    bg_blur_sigma: float,
     out_path: Path,
     overwrite: bool,
     ffmpeg_loglevel: str,
@@ -271,14 +396,10 @@ def _render_panel_with_transition(
 
     Strategy:
       1. Render the SHORT transition intro clip (transition_frames frames) using
-         the animated filtergraph. This is fast — very few frames.
-      2. Render the STATIC remainder of the panel (dur_s minus transition duration).
-         This uses the concat demuxer on a single image, which ffmpeg handles
-         extremely efficiently (no per-frame filter cost).
+         the animated filtergraph with blurred bg + sliding fg. Fast — few frames.
+      2. Render the STATIC remainder of the panel using blurred bg + centered fg.
+         Uses -loop 1 on a single image for efficiency.
       3. Concatenate intro + static with stream copy (instant).
-
-    This approach avoids per-frame zoompan on long panels entirely.
-    The only slow part is the intro (≤48 frames by default).
     """
     N = max(2, transition_frames)
     transition_dur_s = N / float(fps)
@@ -294,7 +415,7 @@ def _render_panel_with_transition(
 
     overwrite_flag = ["-y"] if overwrite else ["-n"]
 
-    # ── 1. Intro clip ────────────────────────────────────────────────────────
+    # ── 1. Intro clip (animated fly-in over blurred bg) ───────────────────────
     intro_vf = _build_intro_segment_filtergraph(
         kind=transition_kind,
         width=width,
@@ -302,6 +423,8 @@ def _render_panel_with_transition(
         fps=fps,
         transition_frames=N,
         pix_fmt=pix_fmt,
+        bg_zoom=bg_zoom,
+        bg_blur_sigma=bg_blur_sigma,
     )
 
     intro_cmd = [
@@ -310,7 +433,8 @@ def _render_panel_with_transition(
         "-framerate", str(fps),
         "-t", f"{transition_dur_s:.6f}",
         "-i", str(img_path),
-        "-vf", intro_vf,
+        "-filter_complex", intro_vf,
+        "-map", "[out]",
         "-r", str(fps),
         "-c:v", encoder,
         "-an",
@@ -325,12 +449,14 @@ def _render_panel_with_transition(
     if rc != 0:
         return rc, stderr
 
-    # ── 2. Static clip (rest of panel duration) ───────────────────────────────
+    # ── 2. Static clip (rest of panel duration, blurred bg + sharp fg) ────────
     if static_dur_s > 0:
-        static_vf = (
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"setsar=1,format={pix_fmt}"
+        static_vf = _build_static_filtergraph(
+            width=width,
+            height=height,
+            pix_fmt=pix_fmt,
+            bg_zoom=bg_zoom,
+            bg_blur_sigma=bg_blur_sigma,
         )
         static_cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", ffmpeg_loglevel,
@@ -338,7 +464,8 @@ def _render_panel_with_transition(
             "-framerate", str(fps),
             "-t", f"{static_dur_s:.6f}",
             "-i", str(img_path),
-            "-vf", static_vf,
+            "-filter_complex", static_vf,
+            "-map", "[out]",
             "-r", str(fps),
             "-c:v", encoder,
             "-an",
@@ -399,6 +526,8 @@ def _run_stage() -> None:
         )
 
     transition_frames = max(2, int(args.transition_frames))
+    bg_zoom = max(1.0, float(args.bg_zoom))
+    bg_blur_sigma = max(1.0, float(args.bg_blur_sigma))
 
     emit("progress", stage=6, message="Loading final_script.json...", percent=5)
     doc = _read_json(in_path)
@@ -479,6 +608,8 @@ def _run_stage() -> None:
                 preset=str(args.preset),
                 video_bitrate=str(args.video_bitrate),
                 pix_fmt=pix_fmt,
+                bg_zoom=bg_zoom,
+                bg_blur_sigma=bg_blur_sigma,
                 out_path=seg_path,
                 overwrite=bool(args.overwrite),
                 ffmpeg_loglevel=str(args.ffmpeg_loglevel),
@@ -573,39 +704,97 @@ def _run_stage() -> None:
             )
 
     else:
-        # ── No transitions: static concat (fast path) ─────────────────────────
-        vf = (
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"format={pix_fmt}"
+        # ── No transitions: static composite (blurred bg + sharp fg) ──────────
+        # Each panel still gets the blurred background treatment, but with no
+        # animation. We use the concat demuxer with a complex filtergraph.
+        # Because the filtergraph references [0:v] directly (one input), we
+        # must render each panel individually and then concat — same as the
+        # transitions path but simpler per-panel filter.
+        segments_dir = work_dir / "segments"
+        segments_dir.mkdir(parents=True, exist_ok=True)
+        segment_paths = []
+
+        static_vf = _build_static_filtergraph(
+            width=width,
+            height=height,
+            pix_fmt=pix_fmt,
+            bg_zoom=bg_zoom,
+            bg_blur_sigma=bg_blur_sigma,
         )
-        cmd: list[str] = [
+
+        for i, (img_path, dur_s) in enumerate(items, start=1):
+            seg_path = segments_dir / f"panel_{i:04d}.mp4"
+            segment_paths.append(seg_path)
+
+            emit(
+                "progress",
+                stage=6,
+                message=f"Rendering panel {i}/{len(items)} [static]...",
+                percent=25 + int((i / max(1, len(items))) * 60),
+            )
+
+            overwrite_flag = ["-y"] if args.overwrite else ["-n"]
+            cmd: list[str] = [
+                "ffmpeg", "-hide_banner", "-loglevel", str(args.ffmpeg_loglevel),
+                "-loop", "1",
+                "-framerate", str(fps),
+                "-t", f"{dur_s:.6f}",
+                "-i", str(img_path),
+                "-filter_complex", static_vf,
+                "-map", "[out]",
+                "-r", str(fps),
+                "-c:v", encoder,
+                "-an",
+            ]
+            if encoder == "libx264":
+                cmd += ["-preset", str(args.preset), "-crf", str(int(args.crf))]
+            else:
+                cmd += ["-allow_sw", "1", "-b:v", str(args.video_bitrate), "-pix_fmt", pix_fmt]
+            cmd += overwrite_flag + [str(seg_path)]
+
+            rc, stderr_tail = _run_ffmpeg_streaming(cmd)
+            if rc != 0:
+                raise stage_failed(
+                    "ffmpeg failed to render static panel.",
+                    {
+                        "panel_index": i,
+                        "img_path": str(img_path),
+                        "returncode": rc,
+                        "stderr": (stderr_tail or "").strip()[-4000:],
+                    },
+                )
+
+        # Concat all static segments.
+        seg_list_path = work_dir / "segment_list.txt"
+        seg_lines = [f"file {_quote_concat_path(p.resolve())}" for p in segment_paths]
+        seg_list_path.write_text("\n".join(seg_lines) + "\n", encoding="utf-8")
+
+        concat_cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", str(args.ffmpeg_loglevel),
             "-stats", "-stats_period", "1",
             "-f", "concat", "-safe", "0",
-            "-i", str(panel_list_path),
+            "-i", str(seg_list_path),
         ]
         if audio_path is not None:
-            cmd += ["-i", str(audio_path)]
-        cmd += ["-vf", vf, "-r", str(fps), "-c:v", encoder]
-        if encoder == "libx264":
-            cmd += ["-preset", str(args.preset), "-crf", str(int(args.crf))]
-        else:
-            cmd += ["-allow_sw", "1", "-b:v", str(args.video_bitrate), "-pix_fmt", pix_fmt]
+            concat_cmd += ["-i", str(audio_path)]
+        concat_cmd += ["-c:v", "copy"]
         if audio_path is not None:
-            cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
-        if args.overwrite:
-            cmd.append("-y")
+            concat_cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
         else:
-            cmd.append("-n")
-        cmd.append(str(out_mp4))
+            concat_cmd += ["-an"]
+        if args.overwrite:
+            concat_cmd.append("-y")
+        else:
+            concat_cmd.append("-n")
+        concat_cmd.append(str(out_mp4))
 
-        rc, stderr_tail = _run_ffmpeg_streaming(cmd)
+        emit("progress", stage=6, message="Concatenating panel segments...", percent=90)
+        rc, stderr_tail = _run_ffmpeg_streaming(concat_cmd)
         if rc != 0:
             raise stage_failed(
                 "ffmpeg failed to render video.",
                 {
-                    "cmd": " ".join(shlex.quote(x) for x in cmd),
+                    "cmd": " ".join(shlex.quote(x) for x in concat_cmd),
                     "returncode": rc,
                     "stderr": (stderr_tail or "").strip()[-4000:],
                     "panel_count": int(collect_meta["panel_count"]),

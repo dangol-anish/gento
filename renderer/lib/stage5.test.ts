@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildStage5Args, extractCompleteSummary, extractLastPercent } from "./stage5";
+import {
+  buildStage5Args,
+  extractCompleteSummary,
+  extractLastPercent,
+} from "./stage5";
 
 describe("stage5", () => {
   it("buildStage5Args builds args and optional flags", () => {
@@ -8,7 +12,7 @@ describe("stage5", () => {
       refinedRecapPagesPath: "./output/final/recap_pages_with_sentences.json",
       outDir: "./output/final/audio",
       outJson: "./output/final/final_script.json",
-      voice: "af_heart",
+      voice: "am_echo",
       speed: 1.1,
       timingTts: true,
     });
@@ -19,7 +23,7 @@ describe("stage5", () => {
       "--out-json",
       "./output/final/final_script.json",
       "--voice",
-      "af_heart",
+      "am_echo",
       "--speed",
       "1.1",
       "--timing-tts",
@@ -37,7 +41,12 @@ describe("stage5", () => {
   it("extractCompleteSummary reads output paths", () => {
     const events: any[] = [
       { type: "progress", percent: 5 },
-      { type: "complete", stitched_audio_path: "a.wav", final_script_path: "final.json", audio_dir: "audio/" },
+      {
+        type: "complete",
+        stitched_audio_path: "a.wav",
+        final_script_path: "final.json",
+        audio_dir: "audio/",
+      },
     ];
     expect(extractCompleteSummary(events as any)).toEqual({
       stitchedAudioPath: "a.wav",
@@ -46,4 +55,3 @@ describe("stage5", () => {
     });
   });
 });
-
