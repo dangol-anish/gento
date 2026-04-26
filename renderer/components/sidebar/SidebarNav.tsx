@@ -1,4 +1,4 @@
-import { Clapperboard, Settings, X } from "lucide-react";
+import { Clapperboard, Loader2, Settings, ShieldCheck, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,8 @@ type Props = {
   activeStage: number;
   setActiveStage: (stage: number) => void;
   onOpenSettings: () => void;
+  onCheckPrerequisites: () => void;
+  isCheckingPrerequisites?: boolean;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 };
@@ -25,6 +27,8 @@ export function SidebarNav({
   activeStage,
   setActiveStage,
   onOpenSettings,
+  onCheckPrerequisites,
+  isCheckingPrerequisites = false,
   sidebarOpen,
   setSidebarOpen,
 }: Props) {
@@ -96,6 +100,22 @@ export function SidebarNav({
       </CardHeader>
 
       <CardContent className="space-y-2.5 p-5">
+        <Button
+          variant="secondary"
+          className="w-full justify-start gap-2"
+          disabled={isCheckingPrerequisites}
+          onClick={() => {
+            onCheckPrerequisites();
+            setSidebarOpen(false);
+          }}
+        >
+          {isCheckingPrerequisites ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ShieldCheck className="h-4 w-4" />
+          )}
+          {isCheckingPrerequisites ? "Checking..." : "Check prerequisites"}
+        </Button>
         <Button
           variant="secondary"
           className="w-full justify-start gap-2"

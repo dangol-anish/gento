@@ -11,7 +11,7 @@ export function formatRuntimeError(code: string, message: string, details?: unkn
         .filter(Boolean)
         .at(-1);
     if (stageErrorReason) {
-      return `Scrape failed: ${stageErrorReason}`;
+      return stageErrorReason;
     }
 
     const stderr = payload?.stderr || "";
@@ -37,4 +37,3 @@ export function formatRuntimeError(code: string, message: string, details?: unkn
 
   return `[${code}] ${message}`;
 }
-

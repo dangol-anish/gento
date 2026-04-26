@@ -5,6 +5,7 @@ import { Gauge, Menu, Sparkles } from "lucide-react";
 
 import { SidebarNav } from "@/components/sidebar/SidebarNav";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { PrerequisitesView } from "@/components/prereqs/PrerequisitesView";
 import {
   Stage0Downloader,
   type Stage0Session,
@@ -23,6 +24,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useToast } from "@/components/ui/toast";
+import { formatRuntimeError } from "@/lib/runtimeErrors";
+import { type PrereqReport, extractPrereqReportFromEvents } from "@/lib/prereqs";
 import { useTheme } from "@/lib/useTheme";
 
 const STAGES = [
@@ -52,9 +56,14 @@ function DisabledStage({ stageIndex }: { stageIndex: number }) {
 
 export default function HomeClient() {
   const [activeStage, setActiveStage] = useState(0);
-  const [view, setView] = useState<"pipeline" | "settings">("pipeline");
+  const [view, setView] = useState<"pipeline" | "settings" | "prereqs">(
+    "pipeline",
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [recentChapterDirs, setRecentChapterDirs] = useState<string[]>([]);
+  const [prereqReport, setPrereqReport] = useState<PrereqReport | null>(null);
+  const [prereqAutoInstall, setPrereqAutoInstall] = useState(false);
+  const [isCheckingPrereqs, setIsCheckingPrereqs] = useState(false);
   const [sessionState, setSessionState] = useState<Stage0Session>({
     mangaUrl: "",
     totalChapters: 0,
@@ -66,6 +75,54 @@ export default function HomeClient() {
     stageMessage: "Ready to scrape manga details.",
   });
   const { theme, toggleTheme } = useTheme();
+  const toast = useToast();
+
+  const handleCheckPrerequisites = async () => {
+    if (!window.gento) {
+      toast.error(
+        "Desktop bridge unavailable",
+        "Restart Electron to reload preload.",
+      );
+      return;
+    }
+
+    setPrereqAutoInstall(false);
+    setIsCheckingPrereqs(true);
+
+    try {
+      const result = await window.gento.runStage(99, ["--mode", "check"]);
+      if (!result.ok) {
+        const message = formatRuntimeError(
+          result.error.code,
+          result.error.message,
+          result.error.details,
+        );
+        toast.error("Prerequisite check failed", message);
+        return;
+      }
+
+      const report = extractPrereqReportFromEvents(result.data.events as any);
+      if (!report) {
+        toast.error("Prerequisite check failed", "No report was returned.");
+        return;
+      }
+
+      if (report.requirementsMet) {
+        toast.success("Requirements met", "All prerequisites are installed.");
+        return;
+      }
+
+      toast.push({
+        title: "Prerequisites",
+        message: "Some dependencies are missing — opening downloader.",
+      });
+      setPrereqReport(report);
+      setPrereqAutoInstall(true);
+      setView("prereqs");
+    } finally {
+      setIsCheckingPrereqs(false);
+    }
+  };
 
   return (
     <main className="no-scrollbar min-h-screen overflow-y-auto px-4 pt-4 pb-4 md:px-5 md:pt-5 md:pb-5 lg:h-screen">
@@ -80,7 +137,11 @@ export default function HomeClient() {
           Navigation
         </Button>
         <Badge variant="muted">
-          {view === "settings" ? "Settings" : "Pipeline"}
+          {view === "settings"
+            ? "Settings"
+            : view === "prereqs"
+              ? "Prerequisites"
+              : "Pipeline"}
         </Badge>
       </div>
 
@@ -93,6 +154,8 @@ export default function HomeClient() {
             setActiveStage(stage);
           }}
           onOpenSettings={() => setView("settings")}
+          onCheckPrerequisites={handleCheckPrerequisites}
+          isCheckingPrerequisites={isCheckingPrereqs}
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
         />
@@ -158,6 +221,16 @@ export default function HomeClient() {
                 />
               </div>
             </>
+          ) : view === "prereqs" ? (
+            <PrerequisitesView
+              report={prereqReport}
+              autoInstall={prereqAutoInstall}
+              onBack={() => {
+                setPrereqAutoInstall(false);
+                setView("pipeline");
+              }}
+              onReport={(next) => setPrereqReport(next)}
+            />
           ) : (
             <SettingsView
               theme={theme}

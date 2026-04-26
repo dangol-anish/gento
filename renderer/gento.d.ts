@@ -20,6 +20,14 @@ type StageEvent = {
   stage?: number;
   percent?: number;
   message?: string;
+  requirements_met?: boolean;
+  prereqs?: Array<{
+    id: string;
+    label: string;
+    status: "ok" | "missing";
+    kind: "download" | "manual";
+    details?: unknown;
+  }>;
   error?: {
     code: string;
     message: string;
