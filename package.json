@@ -12,9 +12,9 @@
     "renderer:build": "npm run build --prefix renderer",
     "renderer:export": "npm run build --prefix renderer",
     "renderer:start": "npm run start --prefix renderer",
-    "dist": "npm run renderer:install && npm run renderer:export && electron-builder",
-    "dist:mac": "npm run renderer:install && npm run renderer:export && electron-builder --mac",
-    "dist:win": "npm run renderer:install && npm run renderer:export && electron-builder --win"
+    "dist": "npm run renderer:install && npm run renderer:export && electron-builder --publish never",
+    "dist:mac": "npm run renderer:install && npm run renderer:export && electron-builder --mac --publish never",
+    "dist:win": "npm run renderer:install && npm run renderer:export && electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "^36.0.0",
