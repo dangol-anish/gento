@@ -8,12 +8,13 @@
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
     "dev": "npm run renderer:dev",
     "renderer:dev": "npm run dev --prefix renderer",
+    "renderer:install": "npm ci --prefix renderer",
     "renderer:build": "npm run build --prefix renderer",
     "renderer:export": "npm run build --prefix renderer",
     "renderer:start": "npm run start --prefix renderer",
-    "dist": "npm run renderer:export && electron-builder",
-    "dist:mac": "npm run renderer:export && electron-builder --mac",
-    "dist:win": "npm run renderer:export && electron-builder --win"
+    "dist": "npm run renderer:install && npm run renderer:export && electron-builder",
+    "dist:mac": "npm run renderer:install && npm run renderer:export && electron-builder --mac",
+    "dist:win": "npm run renderer:install && npm run renderer:export && electron-builder --win"
   },
   "devDependencies": {
     "electron": "^36.0.0",
