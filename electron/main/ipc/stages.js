@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
+const ffmpegStatic = require("ffmpeg-static");
 const {
   ErrorCodes,
   createSuccess,
@@ -58,6 +59,36 @@ function writeAppSettings(settings) {
   const settingsPath = getSettingsPath();
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+}
+
+function getProjectRoot() {
+  return app.isPackaged ? process.resourcesPath : process.cwd();
+}
+
+function getUserWorkspaceDir() {
+  if (!app.isPackaged) {
+    return process.cwd();
+  }
+  const root = app.getPath("userData");
+  const workspace = path.join(root, "workspace");
+  fs.mkdirSync(workspace, { recursive: true });
+  return workspace;
+}
+
+function getVenvPythonPath() {
+  const venvRoot = path.join(app.getPath("userData"), "python", "venv");
+  if (process.platform === "win32") {
+    return path.join(venvRoot, "Scripts", "python.exe");
+  }
+  return path.join(venvRoot, "bin", "python3");
+}
+
+function pickPythonCommand() {
+  const venvPython = getVenvPythonPath();
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 /**
@@ -291,7 +322,7 @@ function registerStageIpcHandlers() {
       return createError(ErrorCodes.INVALID_REQUEST, "path is required for open-path.");
     }
 
-    const resolvedPath = path.resolve(process.cwd(), payload.path);
+    const resolvedPath = path.resolve(getUserWorkspaceDir(), payload.path);
     try {
       const errorMessage = await shell.openPath(resolvedPath);
       if (errorMessage) {
@@ -312,7 +343,7 @@ function registerStageIpcHandlers() {
     }
 
     const outDir = payload.outDir || "./downloads";
-    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    const pythonCmd = pickPythonCommand();
     const args = ["-m", "scripts.downloader.scraper", "--url", payload.url, "--out", outDir, "--details-only"];
 
     try {
@@ -470,7 +501,7 @@ function registerStageIpcHandlers() {
 
     try {
       if (stage === 0) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const runResult = await runPythonCommand(
           pythonCmd,
           ["-m", "scripts.downloader.scraper", ...args],
@@ -481,13 +512,13 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 1) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.extract_chapter", ...args], _event, stage);
         return runResult;
       }
 
       if (stage === 2) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const sceneProvider = parseFlagValue(args, "--scene-provider");
         const ollamaHost = parseFlagValue(args, "--ollama-host") || "http://127.0.0.1:11434";
         if (_event) {
@@ -512,7 +543,7 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 3) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const ollamaHost = parseFlagValue(args, "--ollama-host") || "http://127.0.0.1:11434";
         if (_event) {
           sendStageEvent(_event, {
@@ -534,7 +565,7 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 4) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const runResult = await runPythonCommand(
           pythonCmd,
           ["-m", "scripts.gemini_to_gento", ...args],
@@ -545,7 +576,7 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 5) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const runResult = await runPythonCommand(
           pythonCmd,
           ["-m", "scripts.generate_audio", ...args],
@@ -556,7 +587,7 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 6) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const runResult = await runPythonCommand(
           pythonCmd,
           ["-m", "scripts.render_video", ...args],
@@ -567,7 +598,7 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 99) {
-        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const pythonCmd = pickPythonCommand();
         const runResult = await runPythonCommand(
           pythonCmd,
           ["-m", "scripts.prereqs", ...args],
@@ -595,8 +626,8 @@ function registerStageIpcHandlers() {
 function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null, extraEnv = null) {
   return new Promise((resolve) => {
     const proc = spawn(command, commandArgs, {
-      cwd: process.cwd(),
-      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+      cwd: getUserWorkspaceDir(),
+      env: buildPythonEnv(extraEnv),
     });
 
     let stderr = "";
@@ -655,6 +686,32 @@ function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null, extr
       );
     });
   });
+}
+
+function buildPythonEnv(extraEnv) {
+  const projectRoot = getProjectRoot();
+  const userDataDir = app.getPath("userData");
+  const env = extraEnv ? { ...process.env, ...extraEnv } : { ...process.env };
+
+  const pathKey =
+    Object.keys(env).find((key) => key.toLowerCase() === "path") || (process.platform === "win32" ? "Path" : "PATH");
+  const currentPath = typeof env[pathKey] === "string" ? env[pathKey] : "";
+
+  const pathParts = [];
+  if (typeof ffmpegStatic === "string" && ffmpegStatic.trim()) {
+    pathParts.push(path.dirname(ffmpegStatic));
+    env.GENTO_FFMPEG_PATH = ffmpegStatic;
+  }
+  pathParts.push(currentPath);
+  env[pathKey] = pathParts.filter(Boolean).join(path.delimiter);
+
+  env.GENTO_PROJECT_ROOT = projectRoot;
+  env.GENTO_USER_DATA_DIR = userDataDir;
+
+  const currentPythonPath = typeof env.PYTHONPATH === "string" ? env.PYTHONPATH : "";
+  env.PYTHONPATH = [projectRoot, currentPythonPath].filter(Boolean).join(path.delimiter);
+
+  return env;
 }
 
 module.exports = {

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import os
 import shutil
 import subprocess
 import sys
+import venv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,13 +30,38 @@ def _project_root() -> Path:
 def _requirements_path() -> Path:
     return _project_root() / "requirements.txt"
 
+def _user_data_dir() -> Path:
+    configured = os.environ.get("GENTO_USER_DATA_DIR")
+    if configured and configured.strip():
+        return Path(configured).expanduser()
+    return _project_root() / ".gento-userdata"
+
+
+def _venv_dir() -> Path:
+    return _user_data_dir() / "python" / "venv"
+
+
+def _venv_python() -> Path:
+    root = _venv_dir()
+    if os.name == "nt":
+        return root / "Scripts" / "python.exe"
+    return root / "bin" / "python3"
+
 
 def _import_ok(module_name: str) -> tuple[bool, str | None]:
-    try:
-        importlib.import_module(module_name)
+    python = _venv_python()
+    proc = subprocess.run(
+        [str(python), "-c", f"import {module_name}"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        check=False,
+    )
+    if proc.returncode == 0:
         return True, None
-    except Exception as exc:  # noqa: BLE001
-        return False, str(exc)
+    stderr = (proc.stderr or "").strip()
+    stdout = (proc.stdout or "").strip()
+    return False, stderr or stdout or f"Failed to import '{module_name}'."
 
 
 def _check_binary(cmd: str) -> tuple[bool, str | None]:
@@ -47,26 +72,65 @@ def _check_binary(cmd: str) -> tuple[bool, str | None]:
 
 
 def _check_magi_model_cached() -> tuple[bool, str | None]:
-    try:
-        from huggingface_hub import snapshot_download
-
-        snapshot_download(repo_id=MAGI_MODEL_REPO, local_files_only=True)
+    python = _venv_python()
+    proc = subprocess.run(
+        [
+            str(python),
+            "-c",
+            (
+                "from huggingface_hub import snapshot_download;"
+                f"snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=True)"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        check=False,
+    )
+    if proc.returncode == 0:
         return True, None
-    except Exception as exc:  # noqa: BLE001
-        return False, str(exc)
+    stderr = (proc.stderr or "").strip()
+    stdout = (proc.stdout or "").strip()
+    return False, stderr or stdout or "Magi model is not cached locally."
 
 
 def _download_magi_model() -> None:
-    from huggingface_hub import snapshot_download
-
     emit("progress", stage=STAGE, message="Downloading Magi model (Hugging Face cache)...", percent=65)
-    snapshot_download(repo_id=MAGI_MODEL_REPO, local_files_only=False, resume_download=True)
+    python = _venv_python()
+    proc = subprocess.run(
+        [
+            str(python),
+            "-c",
+            (
+                "from huggingface_hub import snapshot_download;"
+                f"snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=False, resume_download=True)"
+            ),
+        ],
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        check=False,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise stage_failed("Failed to download Magi model.", {"exit_code": proc.returncode})
 
 
 def _pip_install_requirements() -> None:
     requirements = _requirements_path()
     if not requirements.exists():
         raise stage_failed("requirements.txt not found.", {"path": str(requirements)})
+
+    venv_dir = _venv_dir()
+    venv_python = _venv_python()
+    if not venv_python.exists():
+        emit("progress", stage=STAGE, message="Creating Python environment (venv)...", percent=12)
+        venv_dir.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            venv.EnvBuilder(with_pip=True).create(str(venv_dir))
+        except Exception as exc:  # noqa: BLE001
+            raise stage_failed(
+                "Failed to create Python venv.",
+                {"path": str(venv_dir), "reason": str(exc)},
+            ) from exc
 
     emit("progress", stage=STAGE, message="Installing Python dependencies (pip)...", percent=20)
 
@@ -77,7 +141,7 @@ def _pip_install_requirements() -> None:
     }
     proc = subprocess.run(
         [
-            sys.executable,
+            str(venv_python),
             "-m",
             "pip",
             "install",
@@ -93,7 +157,7 @@ def _pip_install_requirements() -> None:
             "pip install failed.",
             {
                 "exit_code": proc.returncode,
-                "hint": f"{sys.executable} -m pip install -r {requirements}",
+                "hint": f"{venv_python} -m pip install -r {requirements}",
             },
         )
 
@@ -137,22 +201,39 @@ def _run_check() -> PrereqCheck:
         ("kokoro", "kokoro"),
     ]
 
-    missing_any = False
-    for package, module in python_modules:
-        ok, error = _import_ok(module)
-        if not ok:
-            missing_any = True
-        prereqs.append(
-            {
-                "id": f"python:{package}",
-                "label": f"Python package: {package}",
-                "status": "ok" if ok else "missing",
-                "kind": "download",
-                "details": {"import_error": error} if error else None,
-            }
-        )
+    venv_python = _venv_python()
+    if venv_python.exists():
+        missing_any = False
+        for package, module in python_modules:
+            ok, error = _import_ok(module)
+            if not ok:
+                missing_any = True
+            prereqs.append(
+                {
+                    "id": f"python:{package}",
+                    "label": f"Python package (Gento venv): {package}",
+                    "status": "ok" if ok else "missing",
+                    "kind": "download",
+                    "details": {"import_error": error} if error else None,
+                }
+            )
+    else:
+        missing_any = True
+        for package, _module in python_modules:
+            prereqs.append(
+                {
+                    "id": f"python:{package}",
+                    "label": f"Python package (Gento venv): {package}",
+                    "status": "missing",
+                    "kind": "download",
+                    "details": {"reason": "Python venv has not been created yet."},
+                }
+            )
 
-    magi_ok, magi_err = _check_magi_model_cached()
+    if venv_python.exists():
+        magi_ok, magi_err = _check_magi_model_cached()
+    else:
+        magi_ok, magi_err = False, "Python venv has not been created yet."
     prereqs.append(
         {
             "id": "magi-model",
@@ -242,4 +323,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

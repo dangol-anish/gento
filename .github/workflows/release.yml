@@ -1,0 +1,45 @@
+name: build-installers
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer export
+        run: npm run renderer:export
+
+      - name: Build installers
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            npm run dist:win
+          else
+            npm run dist:mac
+          fi
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gento-${{ runner.os }}
+          path: dist/**
+

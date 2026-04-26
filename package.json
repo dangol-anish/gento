@@ -9,9 +9,58 @@
     "dev": "npm run renderer:dev",
     "renderer:dev": "npm run dev --prefix renderer",
     "renderer:build": "npm run build --prefix renderer",
-    "renderer:start": "npm run start --prefix renderer"
+    "renderer:export": "npm run build --prefix renderer",
+    "renderer:start": "npm run start --prefix renderer",
+    "dist": "npm run renderer:export && electron-builder",
+    "dist:mac": "npm run renderer:export && electron-builder --mac",
+    "dist:win": "npm run renderer:export && electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^36.0.0"
+    "electron": "^36.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0"
+  },
+  "build": {
+    "appId": "com.gento.app",
+    "productName": "Gento",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**",
+      "renderer/out/**",
+      "package.json"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "scripts",
+        "to": "scripts"
+      },
+      {
+        "from": "shared",
+        "to": "shared"
+      },
+      {
+        "from": "config",
+        "to": "config"
+      },
+      {
+        "from": "requirements.txt",
+        "to": "requirements.txt"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   }
 }

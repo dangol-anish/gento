@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 
 def _load_stage_event_contract() -> dict[str, Any]:
-    contract_path = Path(__file__).resolve().parents[2] / "shared" / "stage-event-contract.json"
+    project_root = Path(os.environ.get("GENTO_PROJECT_ROOT") or Path(__file__).resolve().parents[2])
+    contract_path = project_root / "shared" / "stage-event-contract.json"
     fallback = {
         "event_types": {
             "progress": {"required_fields": ["stage", "message"]},

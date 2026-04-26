@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
 def _load_error_codes() -> dict[str, str]:
-    codes_path = Path(__file__).resolve().parents[2] / "shared" / "error-codes.json"
+    project_root = Path(os.environ.get("GENTO_PROJECT_ROOT") or Path(__file__).resolve().parents[2])
+    codes_path = project_root / "shared" / "error-codes.json"
     fallback = {
         "INVALID_REQUEST": "INVALID_REQUEST",
         "INVALID_STAGE": "INVALID_STAGE",

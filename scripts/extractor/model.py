@@ -8,7 +8,7 @@ from PIL import Image
 
 
 def _maybe_load_dotenv() -> None:
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = Path(os.environ.get("GENTO_PROJECT_ROOT") or Path(__file__).resolve().parents[2])
     dotenv_path = project_root / ".env"
     if not dotenv_path.exists():
         return

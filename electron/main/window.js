@@ -1,4 +1,5 @@
-const { BrowserWindow } = require("electron");
+const { app, BrowserWindow } = require("electron");
+const fs = require("fs");
 const path = require("path");
 
 function createMainWindow() {
@@ -18,7 +19,10 @@ function createMainWindow() {
   if (rendererUrl) {
     window.loadURL(rendererUrl);
   } else {
-    window.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+    const appRoot = app.isPackaged ? app.getAppPath() : process.cwd();
+    const exportedIndex = path.join(appRoot, "renderer", "out", "index.html");
+    const legacyIndex = path.join(__dirname, "..", "renderer", "index.html");
+    window.loadFile(fs.existsSync(exportedIndex) ? exportedIndex : legacyIndex);
   }
 
   return window;

@@ -1026,6 +1026,8 @@ Do not hardcode `python`. Use `python3` on macOS/Linux and detect via a config s
 const pythonCmd = process.platform === "win32" ? "python" : "python3";
 ```
 
+For packaged builds, prefer a **per-user venv** under Electron `userData` and run stages via that interpreter once it exists.
+
 ### ffmpeg Path
 
 - macOS: `brew install ffmpeg` or bundle binary.
@@ -1044,6 +1046,20 @@ try {
 }
 ```
 
+For packaged builds, bundling `ffmpeg` via `ffmpeg-static` and prepending it to `PATH` is the simplest option.
+
+### Installers (DMG/EXE)
+
+This repo can build:
+
+- macOS: DMG
+- Windows: EXE (NSIS)
+
+Commands:
+
+- `npm run dist:mac`
+- `npm run dist:win`
+
 ### File Paths
 
 Always use `path.join()` in Node.js. Never concatenate paths with `/` or `\`. In Python, always use `pathlib.Path`.
@@ -1061,10 +1077,10 @@ On first launch, Electron runs a prerequisite check and shows a setup screen if 
 | Requirement       | Check                                      | Install Link                      |
 | ----------------- | ------------------------------------------ | --------------------------------- |
 | Python 3.10+      | `python --version`                         | python.org                        |
-| pip packages      | `pip show httpx pillow transformers torch` | `pip install -r requirements.txt` |
+| pip packages      | venv import check                           | auto-install into venv            |
 | Ollama            | `GET http://localhost:11434/api/tags`      | ollama.com                        |
 | gemma3:4b model   | check models list from Ollama              | `ollama pull gemma3:4b`           |
-| ffmpeg            | `ffmpeg -version`                          | ffmpeg.org                        |
+| ffmpeg            | `ffmpeg -version`                          | bundled (or manual)               |
 | Anthropic API key | key present in config                      | anthropic.com                     |
 | Kokoro TTS        | `python -c "import kokoro"`                | `pip install kokoro`              |
 
