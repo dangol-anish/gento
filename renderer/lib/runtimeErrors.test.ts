@@ -25,6 +25,14 @@ describe("formatRuntimeError", () => {
     expect(result).toBe("Stage execution failed: Python 3.10+ required");
   });
 
+  it("falls back to stderr tail when no structured stage error is present", () => {
+    const result = formatRuntimeError("PROCESS_EXIT_NON_ZERO", "failed", {
+      stderr: "Traceback...\nSyntaxError: invalid syntax\n",
+    });
+
+    expect(result).toContain("SyntaxError: invalid syntax");
+  });
+
   it("returns a python dependency message for missing httpx", () => {
     const result = formatRuntimeError("PROCESS_EXIT_NON_ZERO", "failed", {
       stderr: "ModuleNotFoundError: No module named 'httpx'",

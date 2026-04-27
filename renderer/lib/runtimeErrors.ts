@@ -3,6 +3,8 @@ type RuntimeErrorDetails = { stderr?: string | null; [key: string]: unknown };
 export function formatRuntimeError(code: string, message: string, details?: unknown) {
   const payload = details as RuntimeErrorDetails | undefined;
 
+  const stderr = (payload?.stderr || "").trim();
+
   if (code === "PROCESS_EXIT_NON_ZERO") {
     const lastStageError = (
       (payload?.events as Array<{ type?: string; error?: { message?: string; details?: { reason?: string } } }> | undefined) ||
@@ -21,7 +23,6 @@ export function formatRuntimeError(code: string, message: string, details?: unkn
       return stageMessage || stageReason;
     }
 
-    const stderr = payload?.stderr || "";
     if (stderr.includes("No module named 'httpx'")) {
       return "Python dependency missing: httpx. Run `python3 -m pip install -r requirements.txt` and retry.";
     }
@@ -40,6 +41,20 @@ export function formatRuntimeError(code: string, message: string, details?: unkn
         .slice(-2)
         .join(" ")}`.trim();
     }
+
+    if (stderr) {
+      const tail = stderr
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(-8)
+        .join("\n");
+      return tail;
+    }
+  }
+
+  if (code === "PROCESS_SPAWN_FAILED" && stderr) {
+    return stderr;
   }
 
   return `[${code}] ${message}`;

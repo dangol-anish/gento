@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 import os
 import platform
@@ -9,7 +7,7 @@ import sys
 import venv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Tuple
 
 from scripts.common.errors import invalid_request, stage_failed
 from scripts.common.events import emit, run_with_error_boundary
@@ -48,8 +46,16 @@ def _venv_python() -> Path:
         return root / "Scripts" / "python.exe"
     return root / "bin" / "python3"
 
+def _python_runtime_ok() -> Tuple[bool, Optional[str]]:
+    if sys.version_info < (3, 10):
+        return False, "Python 3.10+ is required."
+    if sys.version_info >= (3, 13):
+        return False, "Python 3.13+ is not supported yet (torch/transformers wheels). Use Python 3.11 or 3.12."
+    if platform.architecture()[0] != "64bit":
+        return False, "64-bit Python is required."
+    return True, None
 
-def _import_ok(module_name: str) -> tuple[bool, str | None]:
+def _import_ok(module_name: str) -> Tuple[bool, Optional[str]]:
     python = _venv_python()
     try:
         proc = subprocess.run(
@@ -69,14 +75,14 @@ def _import_ok(module_name: str) -> tuple[bool, str | None]:
     return False, stderr or stdout or f"Failed to import '{module_name}'."
 
 
-def _check_binary(cmd: str) -> tuple[bool, str | None]:
+def _check_binary(cmd: str) -> Tuple[bool, Optional[str]]:
     resolved = shutil.which(cmd)
     if resolved:
         return True, resolved
     return False, None
 
 
-def _check_magi_model_cached() -> tuple[bool, str | None]:
+def _check_magi_model_cached() -> Tuple[bool, Optional[str]]:
     python = _venv_python()
     try:
         proc = subprocess.run(
@@ -214,6 +220,22 @@ def _pip_install_requirements() -> None:
 
 def _run_check() -> PrereqCheck:
     prereqs: list[dict[str, Any]] = []
+
+    python_ok, python_reason = _python_runtime_ok()
+    prereqs.append(
+        {
+            "id": "python",
+            "label": "Python (64-bit, 3.10–3.12 recommended 3.11)",
+            "status": "ok" if python_ok else "missing",
+            "kind": "manual",
+            "details": {
+                "version": platform.python_version(),
+                "executable": sys.executable,
+                "architecture": platform.architecture()[0],
+                "reason": python_reason,
+            },
+        }
+    )
 
     ffmpeg_ok, ffmpeg_path = _check_binary("ffmpeg")
     prereqs.append(

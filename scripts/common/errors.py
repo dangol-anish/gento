@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 def _load_error_codes() -> dict[str, str]:
@@ -31,7 +31,7 @@ ERROR_CODES = _load_error_codes()
 class AppError(Exception):
     code: str
     message: str
-    details: dict[str, Any] | None = None
+    details: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,9 +41,9 @@ class AppError(Exception):
         }
 
 
-def invalid_request(message: str, details: dict[str, Any] | None = None) -> AppError:
+def invalid_request(message: str, details: Optional[dict[str, Any]] = None) -> AppError:
     return AppError(ERROR_CODES["INVALID_REQUEST"], message, details)
 
 
-def stage_failed(message: str, details: dict[str, Any] | None = None) -> AppError:
+def stage_failed(message: str, details: Optional[dict[str, Any]] = None) -> AppError:
     return AppError(ERROR_CODES["STAGE_EXECUTION_FAILED"], message, details)
