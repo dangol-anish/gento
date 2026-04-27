@@ -7,6 +7,8 @@ import sys
 import venv
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event, Thread
+from time import monotonic, sleep
 from typing import Any, Optional, Tuple
 
 from scripts.common.errors import invalid_request, stage_failed
@@ -54,6 +56,46 @@ def _python_runtime_ok() -> Tuple[bool, Optional[str]]:
     if platform.architecture()[0] != "64bit":
         return False, "64-bit Python is required."
     return True, None
+
+
+def _run_with_heartbeat(
+    cmd: list[str],
+    *,
+    env: dict[str, str],
+    timeout_s: int,
+    heartbeat_every_s: int = 10,
+    heartbeat_message: str = "Still working...",
+) -> subprocess.CompletedProcess[str]:
+    """
+    Run a subprocess while emitting periodic heartbeat lines to stderr.
+    This prevents the UI from looking 'stuck' when pip is busy but quiet.
+    """
+    start = monotonic()
+    stop = Event()
+
+    def _heartbeat() -> None:
+        while not stop.is_set():
+            sleep(heartbeat_every_s)
+            if stop.is_set():
+                break
+            elapsed = int(monotonic() - start)
+            sys.stderr.write(f"[gento] {heartbeat_message} ({elapsed}s)\n")
+            sys.stderr.flush()
+
+    thread = Thread(target=_heartbeat, daemon=True)
+    thread.start()
+    try:
+        proc = subprocess.run(
+            cmd,
+            env=env,
+            check=False,
+            text=True,
+            timeout=timeout_s,
+        )
+        return proc
+    finally:
+        stop.set()
+        thread.join(timeout=1)
 
 def _import_ok(module_name: str) -> Tuple[bool, Optional[str]]:
     python = _venv_python()
@@ -169,15 +211,17 @@ def _pip_install_requirements() -> None:
     env = {
         **os.environ,
         "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+        "PIP_NO_INPUT": "1",
         "PYTHONUNBUFFERED": "1",
         "PIP_PROGRESS_BAR": "off",
     }
-    upgrade_proc = subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+    # On Windows, upgrading setuptools can sometimes hang due to file locks/AV.
+    # pip+wheel are enough for installing binary wheels from requirements.txt.
+    upgrade_proc = _run_with_heartbeat(
+        [str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "wheel"],
         env=env,
-        check=False,
-        text=True,
-        timeout=15 * 60,
+        timeout_s=15 * 60,
+        heartbeat_message="Upgrading pip/wheel...",
     )
     if upgrade_proc.returncode != 0:
         raise stage_failed(
@@ -186,7 +230,7 @@ def _pip_install_requirements() -> None:
         )
 
     emit("progress", stage=STAGE, message="Installing Python dependencies (wheels only)...", percent=20)
-    proc = subprocess.run(
+    proc = _run_with_heartbeat(
         [
             str(venv_python),
             "-m",
@@ -203,9 +247,8 @@ def _pip_install_requirements() -> None:
             str(requirements),
         ],
         env=env,
-        check=False,
-        text=True,
-        timeout=30 * 60,
+        timeout_s=30 * 60,
+        heartbeat_message="Installing Python dependencies...",
     )
     if proc.returncode != 0:
         raise stage_failed(
