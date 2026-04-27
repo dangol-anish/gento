@@ -502,7 +502,7 @@ def _run_stage() -> None:
         raise invalid_request("recap_pages.json must be a JSON object.", {"path": str(recap_path)})
 
     provider = str(args.provider)
-    model = str(args.model or ("claude-sonnet-4-20250514" if provider == "anthropic" else "gemini-1.5-pro"))
+    model = str(args.model or ("claude-sonnet-4-20250514" if provider == "anthropic" else "gemini-2.5-pro"))
 
     system_prompt = str(args.system_prompt).strip() if args.system_prompt else _build_default_system_prompt()
     storyboard_path = recap.get("storyboard") if isinstance(recap.get("storyboard"), str) else None

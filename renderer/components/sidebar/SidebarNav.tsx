@@ -9,8 +9,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+export type SidebarStageItem = {
+  id: number;
+  label: string;
+  disabled?: boolean;
+};
+
 type Props = {
-  stages: string[];
+  stages: SidebarStageItem[];
   activeStage: number;
   setActiveStage: (stage: number) => void;
   onOpenSettings: () => void;
@@ -19,8 +25,6 @@ type Props = {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 };
-
-const DISABLED_STAGE_INDICES = new Set([2, 3]);
 
 export function SidebarNav({
   stages,
@@ -65,30 +69,30 @@ export function SidebarNav({
         </div>
 
         <div className="space-y-2">
-          {stages.map((stage, index) => {
-            const isDisabled = DISABLED_STAGE_INDICES.has(index);
+          {stages.map((stage) => {
+            const isDisabled = stage.disabled ?? false;
             return (
               <button
-                key={stage}
+                key={stage.id}
                 type="button"
                 disabled={isDisabled}
                 onClick={() => {
                   if (isDisabled) return;
-                  setActiveStage(index);
+                  setActiveStage(stage.id);
                   setSidebarOpen(false);
                 }}
                 className={`anim-press flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
                   isDisabled
                     ? "cursor-not-allowed border-transparent text-muted-foreground/60 opacity-60"
-                    : activeStage === index
+                    : activeStage === stage.id
                       ? "text-black dark:text-white border-black/10 shadow-xs shadow-black/10"
                       : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground"
                 }`}
               >
-                <span>{stage}</span>
+                <span>{stage.label}</span>
                 <span
                   className={`h-2 w-2 rounded-full ${
-                    activeStage === index && !isDisabled
+                    activeStage === stage.id && !isDisabled
                       ? "bg-primary"
                       : "bg-muted-foreground/45"
                   }`}

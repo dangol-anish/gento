@@ -337,6 +337,18 @@ function registerStageIpcHandlers() {
     }
   });
 
+  ipcMain.handle("path-exists", async (_event, payload) => {
+    if (!payload || typeof payload !== "object" || typeof payload.path !== "string") {
+      return createError(ErrorCodes.INVALID_REQUEST, "path is required for path-exists.");
+    }
+    const resolvedPath = path.resolve(getUserWorkspaceDir(), payload.path);
+    try {
+      return createSuccess({ path: resolvedPath, exists: fs.existsSync(resolvedPath) });
+    } catch (error) {
+      return toUnknownError(error);
+    }
+  });
+
   ipcMain.handle("scrape-manga", async (_event, payload) => {
     if (!payload || typeof payload !== "object" || typeof payload.url !== "string") {
       return createError(ErrorCodes.INVALID_REQUEST, "url is required for scrape-manga.");
@@ -519,26 +531,12 @@ function registerStageIpcHandlers() {
 
       if (stage === 2) {
         const pythonCmd = pickPythonCommand();
-        const sceneProvider = parseFlagValue(args, "--scene-provider");
-        const ollamaHost = parseFlagValue(args, "--ollama-host") || "http://127.0.0.1:11434";
-        if (_event) {
-          sendStageEvent(_event, {
-            type: "log",
-            stage: 2,
-            message: `Stage 2 preflight: provider=${sceneProvider || "(missing)"} host=${ollamaHost}`,
-          });
-        }
-        if (sceneProvider === "ollama") {
-          const ready = await ensureOllamaRunning(ollamaHost, _event, 2);
-          if (!ready) {
-            return createError(
-              ErrorCodes.STAGE_EXECUTION_FAILED,
-              "Ollama is not running or reachable.",
-              { host: ollamaHost },
-            );
-          }
-        }
-        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.add_scenes", ...args], _event, stage);
+        const runResult = await runPythonCommand(
+          pythonCmd,
+          ["-m", "scripts.gemini_accuracy_pass", ...args],
+          _event,
+          stage,
+        );
         return runResult;
       }
 
@@ -707,6 +705,18 @@ function buildPythonEnv(extraEnv) {
 
   env.GENTO_PROJECT_ROOT = projectRoot;
   env.GENTO_USER_DATA_DIR = userDataDir;
+
+  const settings = readAppSettings();
+  if (settings && typeof settings === "object") {
+    const anthropicApiKey = typeof settings.anthropicApiKey === "string" ? settings.anthropicApiKey.trim() : "";
+    const geminiApiKey = typeof settings.geminiApiKey === "string" ? settings.geminiApiKey.trim() : "";
+    if (anthropicApiKey && !env.ANTHROPIC_API_KEY) {
+      env.ANTHROPIC_API_KEY = anthropicApiKey;
+    }
+    if (geminiApiKey && !env.GEMINI_API_KEY && !env.GOOGLE_API_KEY) {
+      env.GEMINI_API_KEY = geminiApiKey;
+    }
+  }
 
   const currentPythonPath = typeof env.PYTHONPATH === "string" ? env.PYTHONPATH : "";
   env.PYTHONPATH = [projectRoot, currentPythonPath].filter(Boolean).join(path.delimiter);

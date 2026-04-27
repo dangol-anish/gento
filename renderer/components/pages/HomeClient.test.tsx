@@ -34,6 +34,16 @@ describe("HomeClient page", () => {
 
     await tick();
 
+    const hasScenes = Array.from(container.querySelectorAll("button")).some((button) =>
+      button.textContent?.includes("Scenes"),
+    );
+    expect(hasScenes).toBe(false);
+
+    const hasRecap = Array.from(container.querySelectorAll("button")).some((button) =>
+      button.textContent?.includes("Recap"),
+    );
+    expect(hasRecap).toBe(false);
+
     const settingsButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.trim() === "Settings",
     );

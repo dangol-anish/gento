@@ -40,6 +40,7 @@ type StageEvent = {
   chapter_dirs?: string[];
   storyboard_path?: string;
   recap_path?: string;
+  gemini_output_path?: string;
   final_script_path?: string;
   refined_recap_path?: string;
   stitched_audio_path?: string;
@@ -72,6 +73,7 @@ declare global {
         }>
       >;
       openPath: (path: string) => Promise<GentoResult<{ path: string }>>;
+      pathExists: (path: string) => Promise<GentoResult<{ path: string; exists: boolean }>>;
       onStageEvent: (callback: (payload: StageEvent) => void) => () => void;
     };
   }

@@ -25,7 +25,7 @@ type Props = {
 
 export function Stage4ScriptRefiner({ onSessionUpdate }: Props) {
   const toast = useToast();
-  const [geminiPath, setGeminiPath] = useState("./output/final/gemini_narrator.json");
+  const [geminiPath, setGeminiPath] = useState("./output/final/gemini_output");
   const [geminiJsonText, setGeminiJsonText] = useState("");
   const [storyboardPath, setStoryboardPath] = useState("./output/final/storyboard.json");
   const [outPath, setOutPath] = useState("./output/final/recap_pages_with_sentences.json");
@@ -36,6 +36,34 @@ export function Stage4ScriptRefiner({ onSessionUpdate }: Props) {
   const [progress, setProgress] = useState(0);
   const [stageMessage, setStageMessage] = useState("Ready to convert Gemini narrator JSON into recap_pages_with_sentences.json (Stage 4).");
   const [lastOutputDir, setLastOutputDir] = useState("./output/final");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!window.gento?.pathExists) {
+        return;
+      }
+      const baseDir = storyboardPath.trim().replaceAll("\\", "/");
+      const folder = baseDir.includes("/") ? baseDir.slice(0, baseDir.lastIndexOf("/")) : "./output/final";
+      const candidates = [
+        `${folder}/gemini_output`,
+        `${folder}/gemini_output.json`,
+        `${folder}/gemini_narrator.json`,
+      ];
+      for (const candidate of candidates) {
+        const result = await window.gento.pathExists(candidate);
+        if (!result.ok) continue;
+        if (cancelled) return;
+        if (result.data.exists) {
+          setGeminiPath(candidate);
+          return;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storyboardPath]);
 
   useEffect(() => {
     const raw = outPath.trim();

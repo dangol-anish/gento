@@ -17,14 +17,19 @@ describe("SidebarNav", () => {
   it("calls callbacks when stage buttons and settings are clicked", () => {
     const setActiveStage = vi.fn();
     const onOpenSettings = vi.fn();
+    const onCheckPrerequisites = vi.fn();
     const setSidebarOpen = vi.fn();
 
     const { container } = renderIntoDocument(
       <SidebarNav
-        stages={["Download", "Extract"]}
+        stages={[
+          { id: 0, label: "Download" },
+          { id: 1, label: "Extract" },
+        ]}
         activeStage={0}
         setActiveStage={setActiveStage}
         onOpenSettings={onOpenSettings}
+        onCheckPrerequisites={onCheckPrerequisites}
         sidebarOpen={true}
         setSidebarOpen={setSidebarOpen}
       />,

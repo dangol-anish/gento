@@ -558,6 +558,21 @@ Set in `config/defaults.json` or via the Settings screen in the UI.
 
 ---
 
+### (Electron UI) Stage 2 — Gemini Transcriber + Narrator
+
+**Purpose:** Automatically call Gemini on the **full page images** from `output/final/storyboard.json` using the combined “Transcriber + Narrator” prompt and write the narrator JSON output to a single file named `gemini_output`.
+
+**Input:** `output/final/storyboard.json` (from Stage 1)
+
+**Output:** `output/final/gemini_output`
+
+**Notes:**
+
+- Uses `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) from the Settings screen.
+- Stage 4 will auto-detect `gemini_output` (and also checks `gemini_output.json` / `gemini_narrator.json` for backward compatibility).
+
+---
+
 ### Stage 5 — Audio Generation
 
 **Status:** Implemented.

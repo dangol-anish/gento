@@ -3,21 +3,28 @@ import { type StageEvent } from "./stage0";
 export type Stage2Settings = {
   storyboardPath: string;
   sceneProvider: "ollama" | "none";
-  ollamaHost: string;
-  ollamaModel: string;
+  ollamaHost?: string;
+  ollamaModel?: string;
   overwrite?: boolean;
   chapterContext?: string;
 };
 
 export function buildStage2Args(params: Stage2Settings): string[] {
-  const args: string[] = [
-    params.storyboardPath,
-    "--scene-provider",
-    params.sceneProvider,
-  ];
+  const args: string[] = ["--storyboard", params.storyboardPath];
 
-  if (params.sceneProvider === "ollama") {
-    args.push("--ollama-host", params.ollamaHost, "--ollama-model", params.ollamaModel);
+  if (params.sceneProvider === "none") {
+    args.push("--scene-provider", "none");
+    return args;
+  }
+
+  args.push("--scene-provider", "ollama");
+
+  if (params.ollamaHost && params.ollamaHost.trim()) {
+    args.push("--ollama-host", params.ollamaHost.trim());
+  }
+
+  if (params.ollamaModel && params.ollamaModel.trim()) {
+    args.push("--ollama-model", params.ollamaModel.trim());
   }
 
   if (params.overwrite) {
@@ -41,7 +48,7 @@ export function extractCompleteSummary(events: StageEvent[]) {
   const completeEvent = events.find((event) => event.type === "complete");
   if (!completeEvent) return null;
   return {
-    storyboardPath: completeEvent.storyboard_path,
+    storyboardPath: (completeEvent as any).storyboard_path as string | undefined,
   };
 }
 

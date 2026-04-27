@@ -11,6 +11,7 @@ import {
   type Stage0Session,
 } from "@/components/stage0/Stage0Downloader";
 import { Stage1Extractor } from "@/components/stage1/Stage1Extractor";
+import { Stage2GeminiAccuracyPass } from "@/components/stage2/Stage2GeminiAccuracyPass";
 import { Stage4ScriptRefiner } from "@/components/stage4/Stage4ScriptRefiner";
 import { Stage5AudioGenerator } from "@/components/stage5/Stage5AudioGenerator";
 import { Stage6VideoRenderer } from "@/components/stage6/Stage6VideoRenderer";
@@ -29,15 +30,28 @@ import { formatRuntimeError } from "@/lib/runtimeErrors";
 import { type PrereqReport, extractPrereqReportFromEvents } from "@/lib/prereqs";
 import { useTheme } from "@/lib/useTheme";
 
-const STAGES = [
-  "Download",
-  "Extract",
-  "Scenes",
-  "Recap",
-  "Refine",
-  "Audio",
-  "Video",
+const STAGE_LABELS: Record<number, string> = {
+  0: "Download",
+  1: "Extract",
+  2: "Gemini",
+  3: "Recap",
+  4: "Refine",
+  5: "Audio",
+  6: "Video",
+};
+
+const SIDEBAR_STAGES = [
+  { id: 0, label: STAGE_LABELS[0] },
+  { id: 1, label: STAGE_LABELS[1] },
+  { id: 2, label: STAGE_LABELS[2] },
+  { id: 4, label: STAGE_LABELS[4] },
+  { id: 5, label: STAGE_LABELS[5] },
+  { id: 6, label: STAGE_LABELS[6] },
 ];
+
+function getStageLabel(stageId: number) {
+  return STAGE_LABELS[stageId] ?? `Stage ${stageId}`;
+}
 
 function DisabledStage({ stageIndex }: { stageIndex: number }) {
   return (
@@ -147,7 +161,7 @@ export default function HomeClient() {
 
       <div className="grid min-h-[calc(100vh-6rem)] grid-cols-1 gap-5 pb-4 md:pb-5 lg:h-full lg:min-h-0 lg:grid-cols-[280px_1fr]">
         <SidebarNav
-          stages={STAGES}
+          stages={SIDEBAR_STAGES}
           activeStage={activeStage}
           setActiveStage={(stage) => {
             setView("pipeline");
@@ -178,7 +192,7 @@ export default function HomeClient() {
                       Desktop orchestration for chapter processing
                     </CardDescription>
                   </div>
-                  <Badge variant="muted">Active: {STAGES[activeStage]}</Badge>
+                  <Badge variant="muted">Active: {getStageLabel(activeStage)}</Badge>
                 </CardHeader>
               </Card>
 
@@ -196,7 +210,7 @@ export default function HomeClient() {
                     recentChapterDirs={recentChapterDirs}
                   />
                 ) : activeStage === 2 ? (
-                  <DisabledStage stageIndex={2} />
+                  <Stage2GeminiAccuracyPass onSessionUpdate={setSessionState} />
                 ) : activeStage === 3 ? (
                   <DisabledStage stageIndex={3} />
                 ) : activeStage === 4 ? (
@@ -216,7 +230,7 @@ export default function HomeClient() {
                 )}
 
                 <SessionCard
-                  activeStage={STAGES[activeStage]}
+                  activeStage={getStageLabel(activeStage)}
                   session={sessionState}
                 />
               </div>

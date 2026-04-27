@@ -7,7 +7,7 @@ Usage:
         --storyboard out_ch001/final/storyboard.json \
         --out       out_ch001/final/recap_pages_with_sentences.json
 
-The Gemini input is the output of the two-pass prompt (Narrator Pass), shaped like:
+The Gemini input is typically the output of the two-pass prompt (Narrator Pass), shaped like:
 [
   {
     "page": 1,
@@ -16,6 +16,10 @@ The Gemini input is the output of the two-pass prompt (Narrator Pass), shaped li
     ]
   }
 ]
+
+This converter also accepts the "Accuracy Pass" schema (characters/action/text)
+and will synthesize a description by concatenating the non-empty fields
+without adding new words.
 
 The storyboard.json is the Magi output from Stage 1, shaped like:
 {
@@ -112,6 +116,21 @@ def distribute_sentences(all_sentences: list[str], n_panels: int) -> list[list[s
 # ---------------------------------------------------------------------------
 # Core converter
 # ---------------------------------------------------------------------------
+
+def _coerce_panel_description(panel: dict) -> str:
+    if isinstance(panel.get("description"), str) and panel["description"].strip():
+        return panel["description"].strip()
+    parts: list[str] = []
+    for key in ("characters", "action", "text"):
+        value = panel.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            continue
+        if value.strip():
+            parts.append(value.strip())
+    return " ".join(parts).strip()
+
 
 def _ensure_sentence(text: str) -> str:
     t = (text or "").strip()
@@ -236,14 +255,19 @@ def convert(
                     "Each Gemini panel entry must be an object.",
                     {"path": str(gemini_path), "page": int(gpage["page"]), "panel_index": pidx, "received_type": type(panel).__name__},
                 )
-            if "panel" not in panel or "description" not in panel:
+            if "panel" not in panel:
                 raise invalid_request(
-                    "Each Gemini panel entry must include 'panel' and 'description'.",
+                    "Each Gemini panel entry must include 'panel'.",
+                    {"path": str(gemini_path), "page": int(gpage["page"]), "panel_index": pidx, "keys": sorted(list(panel.keys()))[:50]},
+                )
+            if not _coerce_panel_description(panel):
+                raise invalid_request(
+                    "Each Gemini panel entry must include a non-empty description (or characters/action/text).",
                     {"path": str(gemini_path), "page": int(gpage["page"]), "panel_index": pidx, "keys": sorted(list(panel.keys()))[:50]},
                 )
             cleaned_panels.append(panel)
 
-        descriptions = [panel["description"] for panel in sorted(cleaned_panels, key=lambda p: p["panel"])]
+        descriptions = [_coerce_panel_description(panel) for panel in sorted(cleaned_panels, key=lambda p: p["panel"])]
         gemini_by_page[page_0] = descriptions
 
     # -- Build final_script.json pages list ----------------------------------

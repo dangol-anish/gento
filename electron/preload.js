@@ -67,6 +67,9 @@ contextBridge.exposeInMainWorld("gento", {
   openPath(path) {
     return ipcRenderer.invoke("open-path", { path }).then((result) => normalizeResult(result));
   },
+  pathExists(path) {
+    return ipcRenderer.invoke("path-exists", { path }).then((result) => normalizeResult(result));
+  },
   onStageEvent(callback) {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("stage-event", listener);
