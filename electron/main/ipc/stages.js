@@ -630,11 +630,17 @@ function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null, extr
 
     let stderr = "";
     const events = [];
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
 
-    proc.stdout.on("data", (chunk) => {
-      const text = chunk.toString();
-      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-      for (const line of lines) {
+    const flushStdoutLines = (final = false) => {
+      const parts = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = final ? "" : parts.pop() || "";
+      for (const raw of parts) {
+        const line = raw.trim();
+        if (!line) {
+          continue;
+        }
         console.log(`[run-stage] python stdout: ${line}`);
         try {
           const parsed = JSON.parse(line);
@@ -648,21 +654,38 @@ function runPythonCommand(command, commandArgs, ipcEvent, stageHint = null, extr
           }
         }
       }
-    });
+    };
 
-    proc.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      stderr += text;
-      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-      for (const line of lines) {
+    const flushStderrLines = (final = false) => {
+      const parts = stderrBuffer.split(/\r?\n/);
+      stderrBuffer = final ? "" : parts.pop() || "";
+      for (const raw of parts) {
+        const line = raw.trim();
+        if (!line) {
+          continue;
+        }
         console.error(`[run-stage] python stderr: ${line}`);
         if (ipcEvent) {
           sendStageEvent(ipcEvent, { type: "log", stage: stageHint, message: line });
         }
       }
+    };
+
+    proc.stdout.on("data", (chunk) => {
+      stdoutBuffer += chunk.toString();
+      flushStdoutLines(false);
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      stderrBuffer += text;
+      flushStderrLines(false);
     });
 
     proc.on("close", (code) => {
+      flushStdoutLines(true);
+      flushStderrLines(true);
       if (code === 0) {
         resolve(createSuccess({ events }));
         return;

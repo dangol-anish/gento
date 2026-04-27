@@ -1091,13 +1091,18 @@ On first launch, Electron runs a prerequisite check and shows a setup screen if 
 
 | Requirement       | Check                                      | Install Link                      |
 | ----------------- | ------------------------------------------ | --------------------------------- |
-| Python 3.10+      | `python --version`                         | python.org                        |
+| Python (64-bit)   | `python --version`                         | python.org                        |
 | pip packages      | venv import check                           | auto-install into venv            |
 | Ollama            | `GET http://localhost:11434/api/tags`      | ollama.com                        |
 | gemma3:4b model   | check models list from Ollama              | `ollama pull gemma3:4b`           |
 | ffmpeg            | `ffmpeg -version`                          | bundled (or manual)               |
 | Anthropic API key | key present in config                      | anthropic.com                     |
 | Kokoro TTS        | `python -c "import kokoro"`                | `pip install kokoro`              |
+
+Notes:
+
+- Recommended Python: **3.11 (64-bit)**. Supported: **3.10–3.12 (64-bit)**.
+- Windows: install from python.org (not the Microsoft Store stub), and ensure `python` runs the intended version in `cmd.exe` / PowerShell.
 
 Show a checklist UI:
 

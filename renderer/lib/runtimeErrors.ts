@@ -4,14 +4,21 @@ export function formatRuntimeError(code: string, message: string, details?: unkn
   const payload = details as RuntimeErrorDetails | undefined;
 
   if (code === "PROCESS_EXIT_NON_ZERO") {
-    const stageErrorReason =
-      ((payload?.events as Array<{ type?: string; error?: { details?: { reason?: string } } }> | undefined) || [])
-        .filter((event) => event.type === "error")
-        .map((event) => event.error?.details?.reason)
-        .filter(Boolean)
-        .at(-1);
-    if (stageErrorReason) {
-      return stageErrorReason;
+    const lastStageError = (
+      (payload?.events as Array<{ type?: string; error?: { message?: string; details?: { reason?: string } } }> | undefined) ||
+      []
+    )
+      .filter((event) => event.type === "error" && event.error)
+      .at(-1)?.error;
+
+    const stageMessage = typeof lastStageError?.message === "string" ? lastStageError.message.trim() : "";
+    const stageReason = typeof lastStageError?.details?.reason === "string" ? lastStageError.details.reason.trim() : "";
+    if (stageMessage || stageReason) {
+      if (stageMessage && stageReason && !stageMessage.includes(stageReason)) {
+        const normalizedMessage = stageMessage.replace(/[.:;]+$/, "").trim();
+        return `${normalizedMessage}: ${stageReason}`;
+      }
+      return stageMessage || stageReason;
     }
 
     const stderr = payload?.stderr || "";

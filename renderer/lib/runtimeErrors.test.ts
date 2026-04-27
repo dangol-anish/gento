@@ -9,7 +9,20 @@ describe("formatRuntimeError", () => {
       ],
     });
 
-    expect(result).toBe("Scrape failed: missing page");
+    expect(result).toBe("missing page");
+  });
+
+  it("returns stage error message (and reason when provided)", () => {
+    const result = formatRuntimeError("PROCESS_EXIT_NON_ZERO", "failed", {
+      events: [
+        {
+          type: "error",
+          error: { message: "Stage execution failed.", details: { reason: "Python 3.10+ required" } },
+        },
+      ],
+    });
+
+    expect(result).toBe("Stage execution failed: Python 3.10+ required");
   });
 
   it("returns a python dependency message for missing httpx", () => {

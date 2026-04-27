@@ -51,13 +51,17 @@ def _venv_python() -> Path:
 
 def _import_ok(module_name: str) -> tuple[bool, str | None]:
     python = _venv_python()
-    proc = subprocess.run(
-        [str(python), "-c", f"import {module_name}"],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [str(python), "-c", f"import {module_name}"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            check=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Failed to run venv Python ({python}): {exc}"
+
     if proc.returncode == 0:
         return True, None
     stderr = (proc.stderr or "").strip()
@@ -74,20 +78,23 @@ def _check_binary(cmd: str) -> tuple[bool, str | None]:
 
 def _check_magi_model_cached() -> tuple[bool, str | None]:
     python = _venv_python()
-    proc = subprocess.run(
-        [
-            str(python),
-            "-c",
-            (
-                "from huggingface_hub import snapshot_download;"
-                f"snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=True)"
-            ),
-        ],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                str(python),
+                "-c",
+                (
+                    "from huggingface_hub import snapshot_download;"
+                    f"snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=True)"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            check=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Failed to run venv Python ({python}): {exc}"
     if proc.returncode == 0:
         return True, None
     stderr = (proc.stderr or "").strip()
