@@ -229,9 +229,21 @@ def _pip_install_requirements() -> None:
             {"exit_code": upgrade_proc.returncode, "hint": f"{venv_python} -m pip install -U pip setuptools wheel"},
         )
 
-    emit("progress", stage=STAGE, message="Installing Python dependencies (wheels only)...", percent=20)
-    proc = _run_with_heartbeat(
-        [
+    req_lines = [line.strip() for line in requirements.read_text(encoding="utf-8").splitlines()]
+    reqs = [line for line in req_lines if line and not line.startswith("#")]
+    if not reqs:
+        return
+
+    failures: list[dict[str, Any]] = []
+    start_percent = 20
+    end_percent = 60
+    step = max(1, int((end_percent - start_percent) / max(1, len(reqs))))
+
+    for index, req in enumerate(reqs):
+        percent = min(end_percent, start_percent + index * step)
+        emit("progress", stage=STAGE, message=f"Installing Python package: {req}...", percent=percent)
+
+        cmd = [
             str(venv_python),
             "-m",
             "pip",
@@ -243,22 +255,23 @@ def _pip_install_requirements() -> None:
             "3",
             "--timeout",
             "60",
-            "-r",
-            str(requirements),
-        ],
-        env=env,
-        timeout_s=30 * 60,
-        heartbeat_message="Installing Python dependencies...",
-    )
-    if proc.returncode != 0:
-        raise stage_failed(
-            "pip install failed (likely missing wheels).",
-            {
-                "exit_code": proc.returncode,
-                "python": platform.python_version(),
-                "hint": "Install Python 3.11 (64-bit) then retry Prerequisites → Download missing.",
-            },
+            req,
+        ]
+
+        proc = _run_with_heartbeat(
+            cmd,
+            env=env,
+            timeout_s=15 * 60,
+            heartbeat_message=f"Installing {req}...",
         )
+
+        if proc.returncode != 0:
+            failures.append({"requirement": req, "exit_code": proc.returncode})
+
+    if failures:
+        # Don't hard-fail the stage — return a report so the UI can show what's still missing.
+        sys.stderr.write("[gento] Some Python packages failed to install. Re-check prerequisites for details.\n")
+        sys.stderr.flush()
 
 
 def _run_check() -> PrereqCheck:
@@ -387,7 +400,17 @@ def _run_install() -> PrereqCheck:
         None,
     )
     if magi_missing is not None:
-        _download_magi_model()
+        magi_error = None
+        if isinstance(magi_missing.get("details"), dict):
+            magi_error = magi_missing["details"].get("error")
+        if isinstance(magi_error, str) and (
+            "No module named" in magi_error or "huggingface_hub" in magi_error or "Failed to run venv Python" in magi_error
+        ):
+            # Dependencies aren't installed correctly yet; don't attempt the model download.
+            sys.stderr.write("[gento] Skipping Magi model download until Python dependencies are installed.\n")
+            sys.stderr.flush()
+        else:
+            _download_magi_model()
 
     emit("progress", stage=STAGE, message="Finalizing prerequisite install...", percent=95)
     return _run_check()

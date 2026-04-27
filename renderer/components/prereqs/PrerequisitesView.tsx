@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ShieldCheck, ArrowLeft, Download, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ export function PrerequisitesView({ report, autoInstall = false, onBack, onRepor
   const [progress, setProgress] = useState(0);
   const [stageMessage, setStageMessage] = useState("Ready to check prerequisites.");
   const [isRunning, setIsRunning] = useState(false);
+  const didAutoInstall = useRef(false);
 
   const missing = useMemo(
     () => (report?.prereqs || []).filter((p) => p.status !== "ok"),
@@ -114,6 +115,8 @@ export function PrerequisitesView({ report, autoInstall = false, onBack, onRepor
     if (!autoInstall) return;
     if (!hasDownloadablesMissing) return;
     if (isRunning) return;
+    if (didAutoInstall.current) return;
+    didAutoInstall.current = true;
     void handleInstall();
   }, [autoInstall, handleInstall, hasDownloadablesMissing, isRunning]);
 
