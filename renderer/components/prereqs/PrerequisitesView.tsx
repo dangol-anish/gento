@@ -21,6 +21,18 @@ function statusDot(status: PrereqItem["status"]) {
   return status === "ok" ? "bg-emerald-500/80" : "bg-rose-500/80";
 }
 
+function formatDetails(details: unknown): string | null {
+  if (!details) return null;
+  if (typeof details === "string") return details;
+  if (typeof details !== "object") return null;
+  const record = details as Record<string, unknown>;
+  const candidates = ["reason", "import_error", "error", "path", "executable", "version", "architecture"]
+    .map((key) => record[key])
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (!candidates.length) return null;
+  return candidates[0];
+}
+
 export function PrerequisitesView({ report, autoInstall = false, onBack, onReport }: Props) {
   const toast = useToast();
   const [progress, setProgress] = useState(0);
@@ -184,6 +196,17 @@ export function PrerequisitesView({ report, autoInstall = false, onBack, onRepor
                             ? "Missing — can download"
                             : "Missing — manual install required"}
                       </p>
+                      {item.status !== "ok" ? (
+                        (() => {
+                          const details = formatDetails(item.details);
+                          if (!details) return null;
+                          return (
+                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground/80">
+                              {details}
+                            </p>
+                          );
+                        })()
+                      ) : null}
                     </div>
                   </div>
                   <div className="shrink-0 rounded-xl border border-border/60 bg-accent/50 px-2 py-1 text-[11px] text-muted-foreground">

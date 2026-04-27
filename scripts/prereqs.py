@@ -65,6 +65,7 @@ def _run_with_heartbeat(
     timeout_s: int,
     heartbeat_every_s: int = 10,
     heartbeat_message: str = "Still working...",
+    capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """
     Run a subprocess while emitting periodic heartbeat lines to stderr.
@@ -91,6 +92,7 @@ def _run_with_heartbeat(
             check=False,
             text=True,
             timeout=timeout_s,
+            capture_output=capture_output,
         )
         return proc
     finally:
@@ -234,16 +236,25 @@ def _pip_install_requirements() -> None:
     if not reqs:
         return
 
+    def _error_tail(proc: subprocess.CompletedProcess[str]) -> str:
+        text = (proc.stderr or proc.stdout or "").strip()
+        if not text:
+            return f"pip exited with code {proc.returncode}"
+        return "\n".join(text.splitlines()[-12:]).strip()
+
     failures: list[dict[str, Any]] = []
     start_percent = 20
     end_percent = 60
     step = max(1, int((end_percent - start_percent) / max(1, len(reqs))))
 
-    for index, req in enumerate(reqs):
+    # Install torch first (its wheels are large and on a separate index for some platforms).
+    ordered = sorted(reqs, key=lambda r: (0 if r.strip().lower() == "torch" else 1, r))
+
+    for index, req in enumerate(ordered):
         percent = min(end_percent, start_percent + index * step)
         emit("progress", stage=STAGE, message=f"Installing Python package: {req}...", percent=percent)
 
-        cmd = [
+        base_cmd = [
             str(venv_python),
             "-m",
             "pip",
@@ -258,15 +269,42 @@ def _pip_install_requirements() -> None:
             req,
         ]
 
+        # torch frequently requires the official PyTorch wheel index on Windows.
+        cmd = base_cmd
+        if req.strip().lower() == "torch":
+            cmd = [
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "--prefer-binary",
+                "--only-binary",
+                ":all:",
+                "--retries",
+                "3",
+                "--timeout",
+                "60",
+                "--index-url",
+                "https://download.pytorch.org/whl/cpu",
+                "--extra-index-url",
+                "https://pypi.org/simple",
+                req,
+            ]
+
         proc = _run_with_heartbeat(
             cmd,
             env=env,
             timeout_s=15 * 60,
             heartbeat_message=f"Installing {req}...",
+            capture_output=True,
         )
 
         if proc.returncode != 0:
+            tail = _error_tail(proc)
             failures.append({"requirement": req, "exit_code": proc.returncode})
+            emit("progress", stage=STAGE, message=f"Failed to install {req}: {tail}", percent=percent)
+        else:
+            emit("progress", stage=STAGE, message=f"Installed {req}.", percent=percent)
 
     if failures:
         # Don't hard-fail the stage — return a report so the UI can show what's still missing.
