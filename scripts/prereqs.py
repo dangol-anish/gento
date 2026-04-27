@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -115,6 +116,24 @@ def _download_magi_model() -> None:
 
 
 def _pip_install_requirements() -> None:
+    if sys.version_info < (3, 10):
+        raise stage_failed(
+            "Python 3.10+ is required to install prerequisites.",
+            {"found": platform.python_version(), "executable": sys.executable},
+        )
+
+    if sys.version_info >= (3, 13):
+        raise stage_failed(
+            "Python is too new for some ML wheels (torch/transformers). Install Python 3.11 or 3.12 and retry.",
+            {"found": platform.python_version(), "executable": sys.executable},
+        )
+
+    if platform.architecture()[0] != "64bit":
+        raise stage_failed(
+            "64-bit Python is required (32-bit cannot install torch wheels).",
+            {"found": platform.architecture()[0], "executable": sys.executable},
+        )
+
     requirements = _requirements_path()
     if not requirements.exists():
         raise stage_failed("requirements.txt not found.", {"path": str(requirements)})
@@ -132,32 +151,56 @@ def _pip_install_requirements() -> None:
                 {"path": str(venv_dir), "reason": str(exc)},
             ) from exc
 
-    emit("progress", stage=STAGE, message="Installing Python dependencies (pip)...", percent=20)
+    emit("progress", stage=STAGE, message="Upgrading pip tooling...", percent=18)
 
     env = {
         **os.environ,
         "PIP_DISABLE_PIP_VERSION_CHECK": "1",
         "PYTHONUNBUFFERED": "1",
+        "PIP_PROGRESS_BAR": "off",
     }
+    upgrade_proc = subprocess.run(
+        [str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+        env=env,
+        check=False,
+        text=True,
+        timeout=15 * 60,
+    )
+    if upgrade_proc.returncode != 0:
+        raise stage_failed(
+            "Failed to upgrade pip/setuptools/wheel.",
+            {"exit_code": upgrade_proc.returncode, "hint": f"{venv_python} -m pip install -U pip setuptools wheel"},
+        )
+
+    emit("progress", stage=STAGE, message="Installing Python dependencies (wheels only)...", percent=20)
     proc = subprocess.run(
         [
             str(venv_python),
             "-m",
             "pip",
             "install",
+            "--prefer-binary",
+            "--only-binary",
+            ":all:",
+            "--retries",
+            "3",
+            "--timeout",
+            "60",
             "-r",
             str(requirements),
         ],
         env=env,
         check=False,
         text=True,
+        timeout=30 * 60,
     )
     if proc.returncode != 0:
         raise stage_failed(
-            "pip install failed.",
+            "pip install failed (likely missing wheels).",
             {
                 "exit_code": proc.returncode,
-                "hint": f"{venv_python} -m pip install -r {requirements}",
+                "python": platform.python_version(),
+                "hint": "Install Python 3.11 (64-bit) then retry Prerequisites → Download missing.",
             },
         )
 
