@@ -30,7 +30,14 @@ function formatDetails(details: unknown): string | null {
     .map((key) => record[key])
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   if (!candidates.length) return null;
-  return candidates[0];
+  const text = candidates[0];
+  if (!text.includes("\n")) return text;
+  const lines = text
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+  // Show the tail so the actual exception line is visible.
+  return lines.slice(-6).join("\n");
 }
 
 export function PrerequisitesView({ report, autoInstall = false, onBack, onReport }: Props) {
@@ -201,9 +208,9 @@ export function PrerequisitesView({ report, autoInstall = false, onBack, onRepor
                           const details = formatDetails(item.details);
                           if (!details) return null;
                           return (
-                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground/80">
-                              {details}
-                            </p>
+                            <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground/80">
+{details}
+                            </pre>
                           );
                         })()
                       ) : null}

@@ -58,6 +58,37 @@ def _python_runtime_ok() -> Tuple[bool, Optional[str]]:
     return True, None
 
 
+def _summarize_import_error(text: str, module_name: str) -> str:
+    normalized = (text or "").strip()
+    if not normalized:
+        return f"Failed to import '{module_name}'."
+
+    # Common Windows PyTorch failure: missing VC++ runtime / dependent DLLs.
+    if module_name == "torch":
+        if (
+            "WinError 126" in normalized
+            or "WinError 127" in normalized
+            or "DLL load failed" in normalized
+            or "_load_dll_libraries" in normalized
+        ):
+            last_line = next((line for line in reversed(normalized.splitlines()) if line.strip()), "").strip()
+            hint = (
+                "Torch failed to load native DLLs. Install Microsoft Visual C++ Redistributable 2015–2022 (x64) "
+                "and reboot, then retry. "
+            )
+            return (hint + last_line).strip()
+
+    lines = [line.rstrip() for line in normalized.splitlines() if line.strip()]
+    if not lines:
+        return f"Failed to import '{module_name}'."
+
+    # Prefer the final exception line, not the whole traceback.
+    last_line = lines[-1]
+    if last_line.lower().startswith("traceback"):
+        return f"Failed to import '{module_name}'."
+    return last_line
+
+
 def _run_with_heartbeat(
     cmd: list[str],
     *,
@@ -106,7 +137,7 @@ def _import_ok(module_name: str) -> Tuple[bool, Optional[str]]:
             [str(python), "-c", f"import {module_name}"],
             capture_output=True,
             text=True,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONNOUSERSITE": "1"},
             check=False,
         )
     except Exception as exc:  # noqa: BLE001
@@ -116,7 +147,8 @@ def _import_ok(module_name: str) -> Tuple[bool, Optional[str]]:
         return True, None
     stderr = (proc.stderr or "").strip()
     stdout = (proc.stdout or "").strip()
-    return False, stderr or stdout or f"Failed to import '{module_name}'."
+    combined = stderr or stdout
+    return False, _summarize_import_error(combined, module_name)
 
 
 def _check_binary(cmd: str) -> Tuple[bool, Optional[str]]:
