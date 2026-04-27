@@ -1,6 +1,6 @@
 {
   "name": "gento",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Manga-to-video desktop app scaffold",
   "main": "electron/main/main.js",
