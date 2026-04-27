@@ -152,9 +152,32 @@ def _import_ok(module_name: str) -> Tuple[bool, Optional[str]]:
 
 
 def _check_binary(cmd: str) -> Tuple[bool, Optional[str]]:
+    if cmd == "ffmpeg":
+        hinted = os.environ.get("GENTO_FFMPEG_PATH")
+        if hinted and hinted.strip():
+            hinted_path = Path(hinted).expanduser()
+            if hinted_path.exists():
+                return True, str(hinted_path)
+
     resolved = shutil.which(cmd)
     if resolved:
         return True, resolved
+
+    if os.name == "nt" and cmd == "ollama":
+        # Ollama's Windows installer doesn't always add itself to PATH.
+        local_app_data = os.environ.get("LOCALAPPDATA") or ""
+        program_files = os.environ.get("ProgramFiles") or ""
+        candidates = [
+            Path(local_app_data) / "Programs" / "Ollama" / "ollama.exe",
+            Path(program_files) / "Ollama" / "ollama.exe",
+        ]
+        for candidate in candidates:
+            try:
+                if candidate.exists():
+                    return True, str(candidate)
+            except Exception:  # noqa: BLE001
+                continue
+
     return False, None
 
 
@@ -370,7 +393,7 @@ def _run_check() -> PrereqCheck:
             "label": "ffmpeg (video rendering)",
             "status": "ok" if ffmpeg_ok else "missing",
             "kind": "manual",
-            "details": {"path": ffmpeg_path} if ffmpeg_path else None,
+            "details": {"path": ffmpeg_path} if ffmpeg_path else {"reason": "ffmpeg not found on PATH."},
         }
     )
 
@@ -381,7 +404,7 @@ def _run_check() -> PrereqCheck:
             "label": "Ollama (local scenes/recaps)",
             "status": "ok" if ollama_ok else "missing",
             "kind": "manual",
-            "details": {"path": ollama_path} if ollama_path else None,
+            "details": {"path": ollama_path} if ollama_path else {"reason": "ollama not found on PATH."},
         }
     )
 
