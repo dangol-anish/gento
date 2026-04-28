@@ -78,6 +78,7 @@ def load_magi_model(model_name: str, device: str, local_files_only: bool) -> tup
         local_files_only=local_files_only,
     ).to(torch_device).eval()
 
+    _patch_missing_generation_config_fields(model)
     _ensure_generation_mixin(model)
     _patch_prepare_inputs_for_generation(model)
 
@@ -88,6 +89,38 @@ def load_magi_model(model_name: str, device: str, local_files_only: bool) -> tup
     )
 
     return model, processor, torch_device
+
+
+def _patch_missing_generation_config_fields(model: Any) -> None:
+    """
+    Some remote-code Florence2 configs shipped with Magi don't define newer
+    generation attributes that parts of `transformers` (or the remote code)
+    expect to exist (e.g. `forced_bos_token_id`).
+
+    On some environments (notably Windows with differing dependency versions),
+    this can crash Stage 1 with:
+      "'Florence2LanguageConfig' object has no attribute 'forced_bos_token_id'"
+    """
+
+    def _patch_one(obj: Any) -> None:
+        config = getattr(obj, "config", None)
+        if config is None:
+            return
+        for attr, default in (
+            ("forced_bos_token_id", None),
+            ("forced_eos_token_id", None),
+        ):
+            if hasattr(config, attr):
+                continue
+            try:
+                setattr(config, attr, default)
+            except Exception:  # noqa: BLE001
+                pass
+
+    _patch_one(model)
+    for attr in ("language_model", "text_model", "lm", "model"):
+        if hasattr(model, attr):
+            _patch_one(getattr(model, attr))
 
 
 def _ensure_generation_mixin(model: Any) -> None:
