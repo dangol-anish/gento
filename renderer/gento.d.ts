@@ -39,6 +39,7 @@ type StageEvent = {
   downloaded_chapters?: number;
   chapter_dirs?: string[];
   storyboard_path?: string;
+  storyboard_paths?: string[];
   recap_path?: string;
   gemini_output_path?: string;
   final_script_path?: string;
