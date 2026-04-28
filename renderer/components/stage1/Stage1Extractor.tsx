@@ -38,6 +38,7 @@ type Props = {
 export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentChapterDirs = [] }: Props) {
   const toast = useToast();
   const [imageFolder, setImageFolder] = useState("./downloads");
+  const [selectedImageFolders, setSelectedImageFolders] = useState<string[]>([]);
   const [chapterId, setChapterId] = useState("chapter_1");
   const [device, setDevice] = useState<"auto" | "cpu" | "mps" | "cuda">("auto");
   const [allowDownloads, setAllowDownloads] = useState(false);
@@ -47,6 +48,7 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
   const [stageMessage, setStageMessage] = useState("Ready to extract panels from downloaded pages.");
   const [lastOutputDir, setLastOutputDir] = useState(outDir);
   const [storyboardPath, setStoryboardPath] = useState("");
+  const [storyboardPaths, setStoryboardPaths] = useState<string[]>([]);
 
   const sessionState = useMemo<Stage1Session>(
     () => ({
@@ -74,6 +76,12 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
       setImageFolder(recentChapterDirs[0]);
     }
   }, [imageFolder, recentChapterDirs]);
+
+  useEffect(() => {
+    if (selectedImageFolders.length > 0) {
+      setImageFolder(selectedImageFolders[0]);
+    }
+  }, [selectedImageFolders]);
 
   useEffect(() => {
     if (!window.gento?.onStageEvent) {
@@ -105,11 +113,20 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
 
       if (payload.type === "complete") {
         const summary = payload.storyboard_path ? payload.storyboard_path : "";
+        const summaryPaths = Array.isArray(payload.storyboard_paths) ? payload.storyboard_paths : [];
         setStoryboardPath(summary);
+        setStoryboardPaths(summaryPaths);
         setLastOutputDir(outDir);
         setProgress(100);
         setStageMessage(payload.message ?? "Stage 1 extraction complete.");
-        toast.success("Stage 1 complete", summary ? `Wrote ${summary}` : "Storyboard written.");
+        toast.success(
+          "Stage 1 complete",
+          summaryPaths.length > 0
+            ? `Wrote ${summaryPaths.length} storyboards`
+            : summary
+              ? `Wrote ${summary}`
+              : "Storyboard written.",
+        );
         setIsRunningStage(false);
         setHasStageStarted(false);
         return;
@@ -135,20 +152,24 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
   }, [outDir]);
 
   const handleRunStage1 = async () => {
-    if (!imageFolder.trim()) {
+    const imagesDirs = (selectedImageFolders.length > 0 ? selectedImageFolders : [imageFolder])
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (imagesDirs.length === 0) {
       setStageMessage("Please provide the downloaded images folder.");
       return;
     }
-    if (imageFolder.trim() === "./downloads") {
-      setStageMessage(
-        "Please select a specific downloaded chapter folder (not the downloads root).",
-      );
+
+    if (imagesDirs.some((dir) => dir === "./downloads")) {
+      setStageMessage("Please select specific chapter folder(s), not the downloads root.");
       toast.error(
-        "Select a chapter folder",
-        "Stage 1 expects a single chapter folder containing page_*.jpg files.",
+        "Select chapter folder(s)",
+        "Stage 1 expects chapter folders containing page_*.jpg files (not the downloads root).",
       );
       return;
     }
+
     if (!chapterId.trim()) {
       setStageMessage("Please provide a chapter ID.");
       return;
@@ -169,7 +190,7 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
 
     const args = buildStage1Args({
       chapterId: chapterId.trim(),
-      imagesDir: imageFolder.trim(),
+      imagesDirs,
       outDir,
       device,
       allowDownloads,
@@ -192,8 +213,16 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
       }
 
       const complete = extractCompleteSummary(events);
-      if (complete?.storyboardPath) {
+      if (complete?.storyboardPaths && complete.storyboardPaths.length > 0) {
+        setStoryboardPaths(complete.storyboardPaths);
+        setStoryboardPath("");
+        setLastOutputDir(outDir);
+        setProgress(100);
+        setStageMessage(`Stage 1 complete: wrote ${complete.storyboardPaths.length} storyboards.`);
+        toast.success("Stage 1 complete", `Wrote ${complete.storyboardPaths.length} storyboards`);
+      } else if (complete?.storyboardPath) {
         setStoryboardPath(complete.storyboardPath);
+        setStoryboardPaths([]);
         setLastOutputDir(outDir);
         setProgress(100);
         setStageMessage(`Stage 1 complete: ${complete.storyboardPath}`);
@@ -227,6 +256,24 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
     }
   };
 
+  const handleAddFolder = () => {
+    const next = imageFolder.trim();
+    if (!next) return;
+    if (next === "./downloads") {
+      toast.error("Select a chapter folder", "Don't add the downloads root.");
+      return;
+    }
+    setSelectedImageFolders((current) => (current.includes(next) ? current : [...current, next]));
+  };
+
+  const handleRemoveFolder = (folder: string) => {
+    setSelectedImageFolders((current) => current.filter((value) => value !== folder));
+  };
+
+  const handleClearFolders = () => {
+    setSelectedImageFolders([]);
+  };
+
   return (
     <Card className="lg:flex lg:flex-col lg:min-h-0 lg:h-full">
       <CardHeader className="border-b border-border/60 p-5">
@@ -242,7 +289,7 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Recent downloads
             </label>
-            <div className="relative">
+            <div className="flex gap-2">
               <select
                 value={recentChapterDirs.includes(imageFolder) ? imageFolder : ""}
                 onChange={(event) => {
@@ -260,28 +307,62 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
                   </option>
                 ))}
               </select>
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                <FiChevronDown />
-              </span>
+              <Button variant="secondary" onClick={handleAddFolder} className="shrink-0">
+                Add
+              </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Stage 1 should run on a single chapter folder (pages only), not the downloads root.
+              Pick a recent chapter folder and click Add (repeat to select multiple).
             </p>
           </div>
         ) : null}
 
         <div className="space-y-2">
           <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Images folder
+            Images folder (manual)
           </label>
-          <input
-            type="text"
-            value={imageFolder}
-            onChange={(event) => setImageFolder(event.target.value)}
-            placeholder="./downloads/Your Manga/Chapter 1"
-            className="glass-interactive h-10 w-full rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground border"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={imageFolder}
+              onChange={(event) => setImageFolder(event.target.value)}
+              placeholder="./downloads/Your Manga/Chapter 1"
+              className="glass-interactive h-10 w-full rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground border"
+            />
+            <Button variant="secondary" onClick={handleAddFolder} className="shrink-0">
+              Add
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Add one or more chapter folders here (optional). If you add folders, Stage 1 runs on the list below.
+          </p>
         </div>
+
+        {selectedImageFolders.length > 0 ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Selected chapters
+              </label>
+              <Button variant="secondary" size="sm" onClick={handleClearFolders}>
+                Clear list
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {selectedImageFolders.map((folder) => (
+                <div
+                  key={folder}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-sm"
+                >
+                  <span className="min-w-0 flex-1 truncate text-foreground">{folder}</span>
+                  <Button variant="secondary" size="sm" onClick={() => handleRemoveFolder(folder)}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-2">
@@ -356,7 +437,18 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
         <Progress value={progress} />
         <p className="text-sm text-muted-foreground/90">{stageMessage}</p>
 
-        {storyboardPath ? (
+        {storyboardPaths.length > 0 ? (
+          <div className="rounded-2xl border border-border/50 bg-background/80 p-3 text-sm text-muted-foreground">
+            <p>Storyboards:</p>
+            <ul className="mt-2 space-y-1">
+              {storyboardPaths.map((path) => (
+                <li key={path} className="truncate text-foreground">
+                  {path}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : storyboardPath ? (
           <div className="rounded-2xl border border-border/50 bg-background/80 p-3 text-sm text-muted-foreground">
             <p>Storyboard:</p>
             <p className="truncate text-foreground">{storyboardPath}</p>

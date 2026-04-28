@@ -184,14 +184,26 @@ def _check_binary(cmd: str) -> Tuple[bool, Optional[str]]:
 def _check_magi_model_cached() -> Tuple[bool, Optional[str]]:
     python = _venv_python()
     try:
+        # Avoid spewing a full traceback for the common case (model not cached yet).
+        # We only need a boolean + a short reason string for the UI.
+        code = (
+            "import sys\n"
+            "from huggingface_hub import snapshot_download\n"
+            "from huggingface_hub.errors import LocalEntryNotFoundError\n"
+            "try:\n"
+            f"    snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=True)\n"
+            "except LocalEntryNotFoundError:\n"
+            "    sys.stderr.write('Magi model is not cached locally yet. Use Prerequisites → Install to download it.\\n')\n"
+            "    raise SystemExit(1)\n"
+            "except Exception as exc:\n"
+            "    sys.stderr.write(f'Failed to check Magi cache: {exc}\\n')\n"
+            "    raise SystemExit(2)\n"
+        )
         proc = subprocess.run(
             [
                 str(python),
                 "-c",
-                (
-                    "from huggingface_hub import snapshot_download;"
-                    f"snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=True)"
-                ),
+                code,
             ],
             capture_output=True,
             text=True,
@@ -210,14 +222,21 @@ def _check_magi_model_cached() -> Tuple[bool, Optional[str]]:
 def _download_magi_model() -> None:
     emit("progress", stage=STAGE, message="Downloading Magi model (Hugging Face cache)...", percent=65)
     python = _venv_python()
+    # Wrap download to avoid a full traceback in the UI on common network/auth issues.
+    code = (
+        "import sys\n"
+        "from huggingface_hub import snapshot_download\n"
+        "try:\n"
+        f"    snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=False, resume_download=True)\n"
+        "except Exception as exc:\n"
+        "    sys.stderr.write(f'Failed to download Magi model: {exc}\\n')\n"
+        "    raise SystemExit(1)\n"
+    )
     proc = subprocess.run(
         [
             str(python),
             "-c",
-            (
-                "from huggingface_hub import snapshot_download;"
-                f"snapshot_download(repo_id={MAGI_MODEL_REPO!r}, local_files_only=False, resume_download=True)"
-            ),
+            code,
         ],
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
         check=False,

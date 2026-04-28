@@ -280,6 +280,9 @@ def write_panel_outputs(
     page_ocr: Any,
     chapter_slug: str,
     reading_direction: str = "ltr",
+    *,
+    final_dir_name: str = "final",
+    write_overlays: bool = False,
 ) -> list[dict[str, Any]]:
     pil_image = Image.open(image_path).convert("RGB")
     width, height = pil_image.size
@@ -296,10 +299,13 @@ def write_panel_outputs(
     panel_items = _order_panel_items(panel_items, reading_direction=reading_direction)
     text_items = _safe_text_bboxes(page_result, page_ocr)
 
-    page_root = out_root / "final" / "pages" / f"{page_idx:03d}"
+    page_root = out_root / str(final_dir_name) / "pages" / f"{page_idx:03d}"
     page_root.mkdir(parents=True, exist_ok=True)
-    _write_panel_overlay(page_root=page_root, base_image=pil_image, panel_items=panel_items)
-    _write_detections_overlay(page_root=page_root, base_image=pil_image, page_result=page_result, page_ocr=page_ocr)
+    if write_overlays:
+        _write_panel_overlay(page_root=page_root, base_image=pil_image, panel_items=panel_items)
+        _write_detections_overlay(
+            page_root=page_root, base_image=pil_image, page_result=page_result, page_ocr=page_ocr
+        )
 
     page_panels: list[dict[str, Any]] = []
     for local_idx, (rect, _points) in enumerate(panel_items):
@@ -342,7 +348,7 @@ def write_panel_outputs(
                     "page_idx": page_idx,
                     "panel_idx": local_idx,
                     "bbox": [float(x) for x in rect],
-                    "crop_path": str(Path("final") / "pages" / f"{page_idx:03d}" / "panels" / f"{local_idx:03d}" / "panel.png"),
+                    "crop_path": str(Path(str(final_dir_name)) / "pages" / f"{page_idx:03d}" / "panels" / f"{local_idx:03d}" / "panel.png"),
                     "crop_sha256_png": crop_hash,
                 },
                 ensure_ascii=False,
@@ -356,7 +362,7 @@ def write_panel_outputs(
                 "panel_id": panel_id,
                 "page_idx": page_idx,
                 "bbox": [float(x) for x in rect],
-                "crop_path": str(Path("final") / "pages" / f"{page_idx:03d}" / "panels" / f"{local_idx:03d}" / "panel.png"),
+                "crop_path": str(Path(str(final_dir_name)) / "pages" / f"{page_idx:03d}" / "panels" / f"{local_idx:03d}" / "panel.png"),
                 "ocr_lines": ocr_lines,
                 "scene_caption": "",
                 "scene_tags": [],
@@ -521,8 +527,10 @@ def build_storyboard(
     source_images: list[str],
     panels: list[dict[str, Any]],
     reading_direction: str = "ltr",
+    *,
+    final_dir_name: str = "final",
 ) -> Path:
-    final_root = out_root / "final"
+    final_root = out_root / str(final_dir_name)
     final_root.mkdir(parents=True, exist_ok=True)
     storyboard = {
         "version": "v1",

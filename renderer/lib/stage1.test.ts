@@ -9,7 +9,7 @@ describe("stage1 lib", () => {
   it("buildStage1Args always uses the fixed model and includes optional flags", () => {
     const args = buildStage1Args({
       chapterId: "chapter_1",
-      imagesDir: "/tmp/images",
+      imagesDirs: ["/tmp/images"],
       outDir: "/tmp/out",
       device: "cpu",
       allowDownloads: true,
@@ -48,7 +48,6 @@ describe("stage1 lib", () => {
         { type: "progress", percent: 10 },
         { type: "complete", storyboard_path: "/tmp/storyboard.json" },
       ]),
-    ).toEqual({ storyboardPath: "/tmp/storyboard.json" });
+    ).toEqual({ storyboardPath: "/tmp/storyboard.json", storyboardPaths: undefined });
   });
 });
-

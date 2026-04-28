@@ -4,7 +4,7 @@ export const STAGE1_MODEL = "ragavsachdeva/magiv3" as const;
 
 export type Stage1Settings = {
   chapterId: string;
-  imagesDir: string;
+  imagesDirs: string[];
   outDir: string;
   device: "auto" | "cpu" | "mps" | "cuda";
   allowDownloads: boolean;
@@ -16,7 +16,7 @@ export function buildStage1Args(params: Stage1Settings): string[] {
     "--chapter-id",
     params.chapterId,
     "--images",
-    params.imagesDir,
+    ...params.imagesDirs,
     "--out",
     params.outDir,
     "--device",
@@ -46,5 +46,6 @@ export function extractCompleteSummary(events: StageEvent[]) {
   if (!completeEvent) return null;
   return {
     storyboardPath: completeEvent.storyboard_path,
+    storyboardPaths: completeEvent.storyboard_paths,
   };
 }

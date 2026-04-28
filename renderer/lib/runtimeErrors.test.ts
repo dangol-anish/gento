@@ -57,6 +57,15 @@ describe("formatRuntimeError", () => {
     expect(result).toContain("No module named 'something'");
   });
 
+  it("returns a helpful message when Python cannot be spawned", () => {
+    const result = formatRuntimeError("PROCESS_SPAWN_FAILED", "Failed to spawn Python process.", {
+      message: "spawn python ENOENT",
+    });
+
+    expect(result).toContain("Python was not found");
+    expect(result).toContain("ENOENT");
+  });
+
   it("returns the fallback message when code is not a known failure", () => {
     const result = formatRuntimeError("UNKNOWN_ERROR", "failed", { stderr: "oops" });
     expect(result).toBe("[UNKNOWN_ERROR] failed");

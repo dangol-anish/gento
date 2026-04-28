@@ -1,5 +1,5 @@
 const { app, ipcMain, shell } = require("electron");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
@@ -86,9 +86,32 @@ function getVenvPythonPath() {
 function pickPythonCommand() {
   const venvPython = getVenvPythonPath();
   if (fs.existsSync(venvPython)) {
-    return venvPython;
+    return { command: venvPython, prefixArgs: [] };
   }
-  return process.platform === "win32" ? "python" : "python3";
+
+  const canRun = (command, args) => {
+    const result = spawnSync(command, args, { stdio: "ignore", windowsHide: true });
+    return !result.error && result.status === 0;
+  };
+
+  if (process.platform === "win32") {
+    const candidates = [
+      { command: "py", prefixArgs: ["-3.12"] },
+      { command: "py", prefixArgs: ["-3.11"] },
+      { command: "py", prefixArgs: ["-3.10"] },
+      { command: "py", prefixArgs: ["-3"] },
+      { command: "python", prefixArgs: [] },
+    ];
+
+    for (const candidate of candidates) {
+      if (canRun(candidate.command, [...candidate.prefixArgs, "-V"])) {
+        return candidate;
+      }
+    }
+    return { command: "python", prefixArgs: [] };
+  }
+
+  return { command: "python3", prefixArgs: [] };
 }
 
 /**
@@ -355,11 +378,20 @@ function registerStageIpcHandlers() {
     }
 
     const outDir = payload.outDir || "./downloads";
-    const pythonCmd = pickPythonCommand();
-    const args = ["-m", "scripts.downloader.scraper", "--url", payload.url, "--out", outDir, "--details-only"];
+    const python = pickPythonCommand();
+    const args = [
+      ...python.prefixArgs,
+      "-m",
+      "scripts.downloader.scraper",
+      "--url",
+      payload.url,
+      "--out",
+      outDir,
+      "--details-only",
+    ];
 
     try {
-      const result = await runPythonCommand(pythonCmd, args);
+      const result = await runPythonCommand(python.command, args);
       if (!result.ok) {
         return result;
       }
@@ -513,10 +545,10 @@ function registerStageIpcHandlers() {
 
     try {
       if (stage === 0) {
-        const pythonCmd = pickPythonCommand();
+        const python = pickPythonCommand();
         const runResult = await runPythonCommand(
-          pythonCmd,
-          ["-m", "scripts.downloader.scraper", ...args],
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.downloader.scraper", ...args],
           _event,
           stage,
         );
@@ -524,16 +556,21 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 1) {
-        const pythonCmd = pickPythonCommand();
-        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.extract_chapter", ...args], _event, stage);
+        const python = pickPythonCommand();
+        const runResult = await runPythonCommand(
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.extract_chapter", ...args],
+          _event,
+          stage,
+        );
         return runResult;
       }
 
       if (stage === 2) {
-        const pythonCmd = pickPythonCommand();
+        const python = pickPythonCommand();
         const runResult = await runPythonCommand(
-          pythonCmd,
-          ["-m", "scripts.gemini_accuracy_pass", ...args],
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.gemini_accuracy_pass", ...args],
           _event,
           stage,
         );
@@ -541,7 +578,7 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 3) {
-        const pythonCmd = pickPythonCommand();
+        const python = pickPythonCommand();
         const ollamaHost = parseFlagValue(args, "--ollama-host") || "http://127.0.0.1:11434";
         if (_event) {
           sendStageEvent(_event, {
@@ -558,15 +595,20 @@ function registerStageIpcHandlers() {
             { host: ollamaHost },
           );
         }
-        const runResult = await runPythonCommand(pythonCmd, ["-m", "scripts.make_panel_recaps", ...args], _event, stage);
+        const runResult = await runPythonCommand(
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.make_panel_recaps", ...args],
+          _event,
+          stage,
+        );
         return runResult;
       }
 
       if (stage === 4) {
-        const pythonCmd = pickPythonCommand();
+        const python = pickPythonCommand();
         const runResult = await runPythonCommand(
-          pythonCmd,
-          ["-m", "scripts.gemini_to_gento", ...args],
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.gemini_to_gento", ...args],
           _event,
           stage,
         );
@@ -574,10 +616,10 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 5) {
-        const pythonCmd = pickPythonCommand();
+        const python = pickPythonCommand();
         const runResult = await runPythonCommand(
-          pythonCmd,
-          ["-m", "scripts.generate_audio", ...args],
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.generate_audio", ...args],
           _event,
           stage,
         );
@@ -585,10 +627,10 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 6) {
-        const pythonCmd = pickPythonCommand();
+        const python = pickPythonCommand();
         const runResult = await runPythonCommand(
-          pythonCmd,
-          ["-m", "scripts.render_video", ...args],
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.render_video", ...args],
           _event,
           stage,
         );
@@ -596,10 +638,10 @@ function registerStageIpcHandlers() {
       }
 
       if (stage === 99) {
-        const pythonCmd = pickPythonCommand();
+        const python = pickPythonCommand();
         const runResult = await runPythonCommand(
-          pythonCmd,
-          ["-m", "scripts.prereqs", ...args],
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.prereqs", ...args],
           _event,
           stage,
         );

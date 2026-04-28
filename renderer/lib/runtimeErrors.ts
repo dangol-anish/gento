@@ -53,8 +53,22 @@ export function formatRuntimeError(code: string, message: string, details?: unkn
     }
   }
 
-  if (code === "PROCESS_SPAWN_FAILED" && stderr) {
-    return stderr;
+  if (code === "PROCESS_SPAWN_FAILED") {
+    const spawnMessage = typeof payload?.message === "string" ? payload.message.trim() : "";
+    const combined = spawnMessage || stderr;
+
+    if (combined) {
+      const looksLikeMissingPython =
+        /ENOENT/i.test(combined) ||
+        /The system cannot find the file specified/i.test(combined) ||
+        /not recognized as an internal or external command/i.test(combined);
+
+      if (looksLikeMissingPython) {
+        return `Python was not found. Install Python 3.11 or 3.12 (64-bit), then restart Gento.\n${combined}`;
+      }
+
+      return combined;
+    }
   }
 
   return `[${code}] ${message}`;

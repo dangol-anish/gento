@@ -44,6 +44,7 @@ class TestStage1Cli(unittest.TestCase):
                 page_ocr=None,
                 chapter_slug="chapter_1",
                 reading_direction="ltr",
+                write_overlays=True,
             )
 
             overlay_path = out_root / "final" / "pages" / "000" / "panels_overlay.png"
@@ -94,6 +95,7 @@ class TestStage1Cli(unittest.TestCase):
             model=stage1_cli.STAGE1_MODEL,
             allow_downloads=False,
             debug=False,
+            reading_direction="rtl",
         )
 
         emitted = []
@@ -146,6 +148,70 @@ class TestStage1Cli(unittest.TestCase):
             with self.assertRaises(AppError) as ctx:
                 stage1_cli._run_stage()
         self.assertEqual(ctx.exception.code, "INVALID_REQUEST")
+
+    def test_run_stage_multi_chapter_emits_storyboard_paths(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ch1 = tmp_path / "ch1"
+            ch2 = tmp_path / "ch2"
+            ch1.mkdir(parents=True, exist_ok=True)
+            ch2.mkdir(parents=True, exist_ok=True)
+
+            args = argparse.Namespace(
+                chapter_id="chapter",
+                images=[str(ch1), str(ch2)],
+                out=str(tmp_path / "out"),
+                device="cpu",
+                model=stage1_cli.STAGE1_MODEL,
+                allow_downloads=False,
+                debug=False,
+                reading_direction="rtl",
+            )
+
+            emitted = []
+
+            def fake_emit(event_type: str, **payload):
+                emitted.append((event_type, payload))
+
+            def fake_collect_image_paths(inputs):
+                if inputs == [str(ch1)]:
+                    return [str(ch1 / "a.png")]
+                if inputs == [str(ch2)]:
+                    return [str(ch2 / "b.png")]
+                return []
+
+            with patch.object(stage1_cli, "parse_args", return_value=args), patch.object(
+                stage1_cli, "collect_image_paths", side_effect=fake_collect_image_paths
+            ), patch.object(stage1_cli, "load_image", return_value="IMG"), patch.object(
+                stage1_cli, "load_magi_model", return_value=("MODEL", "PROC", "cpu")
+            ), patch.object(
+                stage1_cli, "predict_page", return_value=({"panels": []}, {"ocr": []})
+            ), patch.object(
+                stage1_cli, "write_panel_outputs", return_value=[{"panel_id": "p"}]
+            ) as write_panel_outputs, patch.object(
+                stage1_cli,
+                "build_storyboard",
+                side_effect=[
+                    Path(tmp_path / "out" / "final_1" / "storyboard.json"),
+                    Path(tmp_path / "out" / "final_2" / "storyboard.json"),
+                ],
+            ), patch.object(stage1_cli, "emit", side_effect=fake_emit):
+                stage1_cli._run_stage()
+
+            # ensure final_dir_name switches per chapter
+            final_dir_names = [call.kwargs.get("final_dir_name") for call in write_panel_outputs.call_args_list]
+            self.assertEqual(final_dir_names, ["final_1", "final_2"])
+
+            complete_events = [evt for evt in emitted if evt[0] == "complete"]
+            self.assertEqual(len(complete_events), 1)
+            self.assertIn("storyboard_paths", complete_events[0][1])
+            self.assertEqual(
+                complete_events[0][1]["storyboard_paths"],
+                [
+                    str(tmp_path / "out" / "final_1" / "storyboard.json"),
+                    str(tmp_path / "out" / "final_2" / "storyboard.json"),
+                ],
+            )
 
     def test_main_exits_nonzero_on_app_error(self):
         with patch.object(stage1_cli, "_run_stage", side_effect=AppError("INVALID_REQUEST", "nope")), patch(
