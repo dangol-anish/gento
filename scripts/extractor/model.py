@@ -102,20 +102,56 @@ def _patch_missing_generation_config_fields(model: Any) -> None:
       "'Florence2LanguageConfig' object has no attribute 'forced_bos_token_id'"
     """
 
-    def _patch_one(obj: Any) -> None:
-        config = getattr(obj, "config", None)
-        if config is None:
+    def _ensure_attrs(config_obj: Any) -> None:
+        if config_obj is None:
             return
         for attr, default in (
             ("forced_bos_token_id", None),
             ("forced_eos_token_id", None),
         ):
-            if hasattr(config, attr):
+            if hasattr(config_obj, attr):
                 continue
             try:
-                setattr(config, attr, default)
+                setattr(config_obj, attr, default)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _walk_config(config_obj: Any, seen: set[int]) -> None:
+        if config_obj is None:
+            return
+        obj_id = id(config_obj)
+        if obj_id in seen:
+            return
+        seen.add(obj_id)
+
+        _ensure_attrs(config_obj)
+
+        # Best-effort: patch nested config objects (Florence2 often nests a language config).
+        for key in ("language_config", "text_config", "decoder", "encoder", "vision_config"):
+            child = getattr(config_obj, key, None)
+            if child is not None:
+                _walk_config(child, seen)
+
+        # Generic scan for config-like objects.
+        try:
+            items = vars(config_obj).items()
+        except Exception:  # noqa: BLE001
+            items = []
+        for _name, child in items:
+            if child is None:
+                continue
+            # Avoid descending into large plain structures.
+            if isinstance(child, (str, int, float, bool, bytes, bytearray, list, tuple, dict, set)):
+                continue
+            # Heuristic: config objects usually have to_dict or model_type.
+            if hasattr(child, "to_dict") or hasattr(child, "model_type"):
+                _walk_config(child, seen)
+
+    def _patch_one(obj: Any) -> None:
+        config = getattr(obj, "config", None)
+        if config is None:
+            return
+        _walk_config(config, set())
 
     _patch_one(model)
     for attr in ("language_model", "text_model", "lm", "model"):
@@ -214,6 +250,8 @@ def _patch_prepare_inputs_for_generation(model: Any) -> None:
 
 
 def predict_page(model: Any, processor: Any, image_np: "Any") -> tuple[dict[str, Any], Any]:
+    # Defensive: some remote-code Florence2 variants mutate/replace nested config objects at runtime.
+    _patch_missing_generation_config_fields(model)
     detections = model.predict_detections_and_associations([image_np], processor)
     ocr_result = model.predict_ocr([image_np], processor)
 
