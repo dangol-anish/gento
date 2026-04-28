@@ -64,10 +64,56 @@ def read_image_rgb_np(path: str) -> "Any":
     return np.array(image)
 
 
+def _patch_florence2_config_class() -> None:
+    """
+    Patch Florence2LanguageConfig at the CLASS level before any model is loaded.
+
+    On Windows (or any environment with an older/newer transformers version),
+    the class may be missing attributes like `forced_bos_token_id` that the
+    remote code or transformers internals try to access during `from_pretrained`.
+
+    Patching the class (not just instances) ensures all objects created from
+    it — including those made internally by remote code — have the attributes.
+    """
+    _ATTRS_TO_PATCH = (
+        ("forced_bos_token_id", None),
+        ("forced_eos_token_id", None),
+    )
+
+    candidates = [
+        ("transformers", "Florence2LanguageConfig"),
+        ("transformers.models.florence2.configuration_florence2", "Florence2LanguageConfig"),
+        ("transformers", "Florence2Config"),
+        ("transformers.models.florence2.configuration_florence2", "Florence2Config"),
+    ]
+
+    for module_path, class_name in candidates:
+        try:
+            import importlib
+            mod = importlib.import_module(module_path)
+            cls = getattr(mod, class_name, None)
+            if cls is None:
+                continue
+            for attr, default in _ATTRS_TO_PATCH:
+                if not hasattr(cls, attr):
+                    try:
+                        setattr(cls, attr, default)
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def load_magi_model(model_name: str, device: str, local_files_only: bool) -> tuple[Any, Any, str]:
     from transformers import AutoModelForCausalLM, AutoProcessor
 
     _maybe_load_dotenv()
+
+    # Patch the Florence2 config CLASS before any loading happens.
+    # This must run before from_pretrained so that any config objects
+    # instantiated internally by the remote code already have the attributes.
+    _patch_florence2_config_class()
+
     torch_device = pick_device(device)
     dtype = dtype_for_device(torch_device)
 
@@ -78,6 +124,8 @@ def load_magi_model(model_name: str, device: str, local_files_only: bool) -> tup
         local_files_only=local_files_only,
     ).to(torch_device).eval()
 
+    # Instance-level patches as a safety net (remote code may create new
+    # config objects at load time that we couldn't catch at the class level).
     _patch_missing_generation_config_fields(model)
     _ensure_generation_mixin(model)
     _patch_prepare_inputs_for_generation(model)
