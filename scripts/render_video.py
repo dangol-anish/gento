@@ -198,12 +198,29 @@ def _bg_fg_filtergraph(
     if bg_h % 2:
         bg_h += 1
 
-    bg_chain = (
-        f"[{input_tag}]scale={bg_w}:{bg_h}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},"
-        f"gblur=sigma={sigma:.1f},"
-        f"setsar=1[bg]"
-    )
+    # Important: For very tall/skinny panels (e.g. 160x915), scaling directly to
+    # (width*zoom)x(height*zoom) with force_original_aspect_ratio=increase can
+    # yield absurd intermediate sizes (e.g. 19200x109800) which ffmpeg rejects.
+    #
+    # Instead, first "cover-scale" to the final canvas (width x height) and crop,
+    # then apply the optional zoom on the already-normalized canvas. This keeps
+    # intermediate dimensions bounded.
+    if zoom <= 1.000001:
+        bg_chain = (
+            f"[{input_tag}]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},"
+            f"gblur=sigma={sigma:.1f},"
+            f"setsar=1[bg]"
+        )
+    else:
+        bg_chain = (
+            f"[{input_tag}]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},"
+            f"scale={bg_w}:{bg_h},"
+            f"crop={width}:{height},"
+            f"gblur=sigma={sigma:.1f},"
+            f"setsar=1[bg]"
+        )
 
     fg_chain = (
         f"[{input_tag}]scale={width}:{height}:force_original_aspect_ratio=decrease,"
@@ -577,6 +594,14 @@ def _run_stage() -> None:
 
     emit("progress", stage=6, message="Rendering mp4 with ffmpeg...", percent=25)
 
+    def should_skip_segment(seg_path: Path) -> bool:
+        if bool(args.overwrite):
+            return False
+        try:
+            return seg_path.exists() and seg_path.stat().st_size > 0
+        except OSError:
+            return False
+
     if transitions_enabled:
         rng = random.Random(args.transition_seed)
         segments_dir = work_dir / "segments"
@@ -587,6 +612,15 @@ def _run_stage() -> None:
             transition_kind = _choose_transition(rng)
             seg_path = segments_dir / f"panel_{i:04d}.mp4"
             segment_paths.append(seg_path)
+
+            if should_skip_segment(seg_path):
+                emit(
+                    "progress",
+                    stage=6,
+                    message=f"Skipping existing panel {i}/{len(items)} ({seg_path.name})...",
+                    percent=25 + int((i / max(1, len(items))) * 60),
+                )
+                continue
 
             emit(
                 "progress",
@@ -726,6 +760,15 @@ def _run_stage() -> None:
         for i, (img_path, dur_s) in enumerate(items, start=1):
             seg_path = segments_dir / f"panel_{i:04d}.mp4"
             segment_paths.append(seg_path)
+
+            if should_skip_segment(seg_path):
+                emit(
+                    "progress",
+                    stage=6,
+                    message=f"Skipping existing panel {i}/{len(items)} ({seg_path.name})...",
+                    percent=25 + int((i / max(1, len(items))) * 60),
+                )
+                continue
 
             emit(
                 "progress",

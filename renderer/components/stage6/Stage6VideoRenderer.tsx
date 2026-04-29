@@ -33,6 +33,7 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
   const [transitions, setTransitions] = useState(true);
   const [transitionSeed, setTransitionSeed] = useState<number | "">("");
   const [ffmpegLoglevel, setFfmpegLoglevel] = useState<"error" | "warning" | "info">("error");
+  const [overwrite, setOverwrite] = useState(false);
 
   const [isRunningStage, setIsRunningStage] = useState(false);
   const [hasStageStarted, setHasStageStarted] = useState(false);
@@ -133,7 +134,7 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
       transitions,
       transitionSeed: transitionSeed === "" ? undefined : Number(transitionSeed),
       ffmpegLoglevel,
-      overwrite: true,
+      overwrite,
     });
 
     try {
@@ -254,6 +255,14 @@ export function Stage6VideoRenderer({ onSessionUpdate }: Props) {
                   onChange={(event) => setTransitions(event.target.checked)}
                 />
                 Enable random pan/zoom per panel
+              </label>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={overwrite}
+                  onChange={(event) => setOverwrite(event.target.checked)}
+                />
+                Overwrite existing segments/output (restart from beginning)
               </label>
               <div className="grid gap-2 lg:grid-cols-2">
                 <div className="space-y-1">
