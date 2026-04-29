@@ -431,6 +431,13 @@ def _render_panel_with_transition(
     seg_list_path = seg_dir / f"{stem}_parts.txt"
 
     overwrite_flag = ["-y"] if overwrite else ["-n"]
+    def can_reuse(p: Path) -> bool:
+        if overwrite:
+            return False
+        try:
+            return p.exists() and p.stat().st_size > 0
+        except OSError:
+            return False
 
     # ── 1. Intro clip (animated fly-in over blurred bg) ───────────────────────
     intro_vf = _build_intro_segment_filtergraph(
@@ -462,9 +469,10 @@ def _render_panel_with_transition(
         intro_cmd += ["-allow_sw", "1", "-b:v", video_bitrate, "-pix_fmt", pix_fmt]
     intro_cmd += overwrite_flag + [str(intro_path)]
 
-    rc, stderr = _run_ffmpeg_streaming(intro_cmd)
-    if rc != 0:
-        return rc, stderr
+    if not can_reuse(intro_path):
+        rc, stderr = _run_ffmpeg_streaming(intro_cmd)
+        if rc != 0:
+            return rc, stderr
 
     # ── 2. Static clip (rest of panel duration, blurred bg + sharp fg) ────────
     if static_dur_s > 0:
@@ -493,9 +501,10 @@ def _render_panel_with_transition(
             static_cmd += ["-allow_sw", "1", "-b:v", video_bitrate, "-pix_fmt", pix_fmt]
         static_cmd += overwrite_flag + [str(static_path)]
 
-        rc, stderr = _run_ffmpeg_streaming(static_cmd)
-        if rc != 0:
-            return rc, stderr
+        if not can_reuse(static_path):
+            rc, stderr = _run_ffmpeg_streaming(static_cmd)
+            if rc != 0:
+                return rc, stderr
 
         # ── 3. Concat intro + static ─────────────────────────────────────────
         seg_list_path.write_text(
