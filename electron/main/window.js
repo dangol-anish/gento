@@ -1,6 +1,7 @@
 const { app, BrowserWindow } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const { writeErrorLog } = require("./logging/errorLogs");
 
 function createMainWindow() {
   const rendererUrl = process.env.GENTO_RENDERER_URL;
@@ -24,6 +25,20 @@ function createMainWindow() {
     const legacyIndex = path.join(__dirname, "..", "renderer", "index.html");
     window.loadFile(fs.existsSync(exportedIndex) ? exportedIndex : legacyIndex);
   }
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    writeErrorLog({
+      error: new Error(`Renderer process gone: ${details.reason}`),
+      context: { source: "main", kind: "render-process-gone", details },
+    }).catch(() => {});
+  });
+
+  window.webContents.on("unresponsive", () => {
+    writeErrorLog({
+      error: new Error("Renderer became unresponsive"),
+      context: { source: "main", kind: "renderer-unresponsive" },
+    }).catch(() => {});
+  });
 
   return window;
 }

@@ -11,6 +11,31 @@ const {
   createError,
   toUnknownError,
 } = require("./contracts");
+const { writeErrorLog } = require("../logging/errorLogs");
+
+function redactSecrets(value, depth = 0) {
+  if (depth > 6) {
+    return "[Truncated]";
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((item) => redactSecrets(item, depth + 1));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const out = {};
+  for (const [key, inner] of Object.entries(value)) {
+    if (typeof key === "string" && /(api[-_ ]?key|token|secret|password)/i.test(key)) {
+      out[key] = "[REDACTED]";
+      continue;
+    }
+    out[key] = redactSecrets(inner, depth + 1);
+  }
+  return out;
+}
 
 function validateRunStagePayload(payload) {
   if (!payload || typeof payload !== "object") {
@@ -289,7 +314,26 @@ async function ensureOllamaRunning(host, ipcEvent, stage) {
 }
 
 function registerStageIpcHandlers() {
-  ipcMain.handle("get-app-settings", async () => {
+  const handle = (channel, handler) => {
+    ipcMain.handle(channel, async (event, payload) => {
+      const result = await handler(event, payload);
+      if (result && typeof result === "object" && result.ok === false && result.error) {
+        writeErrorLog({
+          error: new Error(result.error.message || "IPC handler failed"),
+          context: {
+            source: "ipc",
+            channel,
+            code: result.error.code,
+            details: result.error.details ?? null,
+            payload: redactSecrets(payload ?? null),
+          },
+        }).catch(() => {});
+      }
+      return result;
+    });
+  };
+
+  handle("get-app-settings", async () => {
     const settings = readAppSettings();
     const anthropicApiKey = typeof settings.anthropicApiKey === "string" ? settings.anthropicApiKey.trim() : "";
     const geminiApiKey = typeof settings.geminiApiKey === "string" ? settings.geminiApiKey.trim() : "";
@@ -299,7 +343,7 @@ function registerStageIpcHandlers() {
     });
   });
 
-  ipcMain.handle("set-app-settings", async (_event, payload) => {
+  handle("set-app-settings", async (_event, payload) => {
     if (!payload || typeof payload !== "object") {
       return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
     }
@@ -340,7 +384,7 @@ function registerStageIpcHandlers() {
     }
   });
 
-  ipcMain.handle("open-path", async (_event, payload) => {
+  handle("open-path", async (_event, payload) => {
     if (!payload || typeof payload !== "object" || typeof payload.path !== "string") {
       return createError(ErrorCodes.INVALID_REQUEST, "path is required for open-path.");
     }
@@ -360,7 +404,7 @@ function registerStageIpcHandlers() {
     }
   });
 
-  ipcMain.handle("path-exists", async (_event, payload) => {
+  handle("path-exists", async (_event, payload) => {
     if (!payload || typeof payload !== "object" || typeof payload.path !== "string") {
       return createError(ErrorCodes.INVALID_REQUEST, "path is required for path-exists.");
     }
@@ -372,7 +416,7 @@ function registerStageIpcHandlers() {
     }
   });
 
-  ipcMain.handle("scrape-manga", async (_event, payload) => {
+  handle("scrape-manga", async (_event, payload) => {
     if (!payload || typeof payload !== "object" || typeof payload.url !== "string") {
       return createError(ErrorCodes.INVALID_REQUEST, "url is required for scrape-manga.");
     }
@@ -410,7 +454,7 @@ function registerStageIpcHandlers() {
     }
   });
 
-  ipcMain.handle("stage4-import-final-script", async (_event, payload) => {
+  handle("stage4-import-final-script", async (_event, payload) => {
     if (!payload || typeof payload !== "object") {
       return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
     }
@@ -491,7 +535,7 @@ function registerStageIpcHandlers() {
     }
   });
 
-  ipcMain.handle("stage4-import-gemini-json", async (_event, payload) => {
+  handle("stage4-import-gemini-json", async (_event, payload) => {
     if (!payload || typeof payload !== "object") {
       return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
     }
@@ -534,7 +578,7 @@ function registerStageIpcHandlers() {
     }
   });
 
-  ipcMain.handle("run-stage", async (_event, payload) => {
+  handle("run-stage", async (_event, payload) => {
     const validationError = validateRunStagePayload(payload);
     if (validationError) {
       return validationError;

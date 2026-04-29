@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { writeErrorLog } = require("../logging/errorLogs");
 
 function loadErrorCodes() {
   const codesPath = path.join(__dirname, "..", "..", "..", "shared", "error-codes.json");
@@ -41,8 +42,12 @@ function createError(code, message, details = null) {
   };
 }
 
-function toUnknownError(error) {
+function toUnknownError(error, context = null) {
   const safeMessage = error instanceof Error ? error.message : "Unknown error";
+  // Best-effort: logging should never break the original flow.
+  Promise.resolve()
+    .then(() => writeErrorLog({ error, context: context ?? { source: "ipc" } }))
+    .catch(() => {});
   return createError(ErrorCodes.INTERNAL_ERROR, safeMessage);
 }
 

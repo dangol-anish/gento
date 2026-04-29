@@ -993,6 +993,16 @@ async function checkOllama() {
 
 ## 10. Error Handling & Resilience
 
+### Crash + Error Logs (Electron)
+
+Gento writes a **separate log file for every error** to help debug client issues.
+
+- Default directory: Electron `userData/logs/errors/` (platform-dependent per user)
+- Optional override: set `GENTO_ERROR_LOG_DIR` before launching the app
+- Captures: main-process crashes (`uncaughtException`, `unhandledRejection`), renderer crashes/unresponsiveness, IPC “unknown” errors, and browser `window.error` / `unhandledrejection`
+
+Clients can share the newest `.log` file from that folder when reporting an issue.
+
 ### Per-Stage Retry
 
 Each stage button in the UI is re-clickable. Stages check for existing outputs and skip completed work (resumable by default).

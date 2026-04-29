@@ -76,6 +76,9 @@ declare global {
       openPath: (path: string) => Promise<GentoResult<{ path: string }>>;
       pathExists: (path: string) => Promise<GentoResult<{ path: string; exists: boolean }>>;
       onStageEvent: (callback: (payload: StageEvent) => void) => () => void;
+      reportError: (error: unknown, context?: Record<string, unknown>) => Promise<GentoResult<{ logId: string }>>;
+      getErrorLogsDir: () => Promise<GentoResult<{ dir: string }>>;
+      openErrorLogsDir: () => Promise<GentoResult<{ dir: string }>>;
     };
   }
 }

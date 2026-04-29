@@ -75,4 +75,15 @@ contextBridge.exposeInMainWorld("gento", {
     ipcRenderer.on("stage-event", listener);
     return () => ipcRenderer.removeListener("stage-event", listener);
   },
+  reportError(error, context) {
+    return ipcRenderer
+      .invoke("report-renderer-error", { error, context })
+      .then((result) => normalizeResult(result));
+  },
+  getErrorLogsDir() {
+    return ipcRenderer.invoke("get-error-logs-dir").then((result) => normalizeResult(result));
+  },
+  openErrorLogsDir() {
+    return ipcRenderer.invoke("open-error-logs-dir").then((result) => normalizeResult(result));
+  },
 });
