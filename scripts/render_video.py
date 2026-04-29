@@ -617,11 +617,12 @@ def _run_stage() -> None:
 
             if rc != 0:
                 raise stage_failed(
-                    "ffmpeg failed while rendering a panel segment.",
+                    f"ffmpeg failed while rendering panel segment {i}/{len(items)} ({img_path}).",
                     {
                         "panel_index": i,
                         "img_path": str(img_path),
                         "transition_kind": transition_kind,
+                        "segment_path": str(seg_path),
                         "returncode": rc,
                         "stderr": (stderr or "").strip()[-4000:],
                     },
@@ -755,10 +756,11 @@ def _run_stage() -> None:
             rc, stderr_tail = _run_ffmpeg_streaming(cmd)
             if rc != 0:
                 raise stage_failed(
-                    "ffmpeg failed to render static panel.",
+                    f"ffmpeg failed while rendering panel segment {i}/{len(items)} [static] ({img_path}).",
                     {
                         "panel_index": i,
                         "img_path": str(img_path),
+                        "segment_path": str(seg_path),
                         "returncode": rc,
                         "stderr": (stderr_tail or "").strip()[-4000:],
                     },
