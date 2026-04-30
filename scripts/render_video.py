@@ -75,6 +75,24 @@ def _resolve_media_path(final_script_path: Path, raw: str) -> Path:
     cand = output_root / p
     if cand.exists():
         return cand
+    # Back-compat / robustness:
+    # Some stage outputs (or user-edited JSON) may embed paths that include the
+    # output subfolder name (e.g. "final_1/pages/...") while the actual run
+    # directory is "final" (i.e. final_script_path.parent.name). If the first
+    # path segment doesn't match the current output folder name, try swapping it.
+    try:
+        parts = p.parts
+        run_dir_name = final_script_path.parent.name
+        if (
+            len(parts) >= 2
+            and parts[0] != run_dir_name
+            and parts[1] == "pages"
+            and (output_root / run_dir_name / Path(*parts[1:])).exists()
+        ):
+            return output_root / run_dir_name / Path(*parts[1:])
+    except Exception:
+        # Fall through to other candidates.
+        pass
     cand2 = final_script_path.parent / p
     if cand2.exists():
         return cand2
