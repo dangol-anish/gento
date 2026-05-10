@@ -37,7 +37,7 @@ describe("Stage0Downloader", () => {
 
     await tick();
 
-    expect(container.textContent).toContain("Please provide a MangaBuddy URL.");
+    expect(container.textContent).toContain("Please provide a manga URL (MangaDex or MangaBuddy).");
   });
 
   it("renders the downloader layout and shows the default scrape message", () => {

@@ -188,7 +188,7 @@ export function Stage0Downloader({
 
   const handleScrapeManga = async () => {
     if (!mangaUrl.trim()) {
-      setStageMessage("Please provide a MangaBuddy URL.");
+      setStageMessage("Please provide a manga URL (MangaDex or MangaBuddy).");
       return;
     }
 
@@ -260,7 +260,7 @@ export function Stage0Downloader({
 
   const handleRunStage0 = async () => {
     if (!mangaUrl.trim()) {
-      setStageMessage("Please provide a MangaBuddy URL.");
+      setStageMessage("Please provide a manga URL (MangaDex or MangaBuddy).");
       return;
     }
     if (selectedChapters.length === 0) {
@@ -394,7 +394,7 @@ export function Stage0Downloader({
       <CardHeader className="border-b border-border/60 p-5">
         <CardTitle>Stage 0 Downloader</CardTitle>
         <CardDescription>
-          Scrape chapters and download selected ones from MangaBuddy.
+          Scrape chapters and download selected ones from MangaDex or MangaBuddy.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 p-5 pt-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
@@ -407,7 +407,7 @@ export function Stage0Downloader({
               type="text"
               value={mangaUrl}
               onChange={(event) => setMangaUrl(event.target.value)}
-              placeholder="https://mangabuddy.com/your-manga"
+              placeholder="https://mangadex.org/title/... or https://mangabuddy.com/..."
               className="glass-interactive h-10 w-full rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground border"
             />
             <Button

@@ -6,8 +6,10 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from scripts.downloader import mangadex
 
-BASE_URL = "https://mangabuddy.com"
+
+MANGABUDDY_BASE_URL = "https://mangabuddy.com"
 BASE_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -20,7 +22,7 @@ BASE_HEADERS = {
 
 def _build_headers(referer: str | None = None, extra_headers: dict | None = None) -> dict:
     headers = BASE_HEADERS.copy()
-    headers["Referer"] = referer or BASE_URL
+    headers["Referer"] = referer or MANGABUDDY_BASE_URL
     if extra_headers:
         headers.update(extra_headers)
     return headers
@@ -96,11 +98,11 @@ def _chapter_number_from_title(title: str) -> float:
 
 
 async def _fetch_chapters(client: httpx.AsyncClient, book_id: str) -> list[dict]:
-    api_url = f"{BASE_URL}/api/manga/{book_id}/chapters?source=detail"
+    api_url = f"{MANGABUDDY_BASE_URL}/api/manga/{book_id}/chapters?source=detail"
     html = await _fetch_text(
         client,
         api_url,
-        referer=BASE_URL,
+        referer=MANGABUDDY_BASE_URL,
         extra_headers={"X-Requested-With": "XMLHttpRequest"},
     )
 
@@ -120,7 +122,7 @@ async def _fetch_chapters(client: httpx.AsyncClient, book_id: str) -> list[dict]
         if href.startswith("http"):
             chapter_url = href
         else:
-            chapter_url = f"{BASE_URL}{href if href.startswith('/') else '/' + href}"
+            chapter_url = f"{MANGABUDDY_BASE_URL}{href if href.startswith('/') else '/' + href}"
 
         title = strong.get_text(strip=True)
         chapter_rows.append(
@@ -136,20 +138,28 @@ async def _fetch_chapters(client: httpx.AsyncClient, book_id: str) -> list[dict]
     return [{"name": row["name"], "url": row["url"]} for row in chapter_rows]
 
 
-async def get_manga_details(url: str, timeout: float = 20) -> tuple[dict | None, list[dict] | None]:
+def _is_mangadex_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return False
+    return parsed.hostname in {"mangadex.org", "www.mangadex.org"} or "mangadex.org" in (parsed.hostname or "")
+
+
+async def _get_mangabuddy_details(url: str, timeout: float = 20) -> tuple[dict | None, list[dict] | None]:
     manga_slug = _extract_manga_slug(url)
     if not manga_slug:
         return None, None
 
-    series_url = f"{BASE_URL}/{manga_slug}"
+    series_url = f"{MANGABUDDY_BASE_URL}/{manga_slug}"
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         try:
-            detail_html = await _fetch_text(client, series_url, referer=BASE_URL)
+            detail_html = await _fetch_text(client, series_url, referer=MANGABUDDY_BASE_URL)
         except httpx.HTTPStatusError as exc:
             # Fallback: some paths may be blocked while original URL still resolves.
             if exc.response is not None and exc.response.status_code == 403:
-                detail_html = await _fetch_text(client, url.strip(), referer=BASE_URL)
+                detail_html = await _fetch_text(client, url.strip(), referer=MANGABUDDY_BASE_URL)
             else:
                 raise
 
@@ -164,14 +174,23 @@ async def get_manga_details(url: str, timeout: float = 20) -> tuple[dict | None,
         return metadata, chapters
 
 
+async def get_manga_details(url: str, timeout: float = 20) -> tuple[dict | None, list[dict] | None]:
+    if _is_mangadex_url(url):
+        return await mangadex.get_manga_details(url, timeout=timeout, translated_languages=["en"])
+    return await _get_mangabuddy_details(url, timeout=timeout)
+
+
 async def get_image_urls(
     chapter_url: str, timeout: float = 20, client: httpx.AsyncClient | None = None
 ) -> list[str]:
+    if _is_mangadex_url(chapter_url):
+        return await mangadex.get_image_urls(chapter_url, timeout=timeout, client=client)
+
     own_client = client is None
     active_client = client or httpx.AsyncClient(timeout=timeout, follow_redirects=True)
 
     try:
-        html = await _fetch_text(active_client, chapter_url, referer=BASE_URL)
+        html = await _fetch_text(active_client, chapter_url, referer=MANGABUDDY_BASE_URL)
         match = re.search(r"var\s+chapImages\s*=\s*['\"]([^'\"]+)['\"]", html)
         if not match:
             return []
