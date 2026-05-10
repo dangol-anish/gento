@@ -67,6 +67,12 @@ contextBridge.exposeInMainWorld("gento", {
   openPath(path) {
     return ipcRenderer.invoke("open-path", { path }).then((result) => normalizeResult(result));
   },
+  renumberPages(pathOrPaths) {
+    const payload = Array.isArray(pathOrPaths)
+      ? { paths: pathOrPaths }
+      : { path: pathOrPaths };
+    return ipcRenderer.invoke("renumber-pages", payload).then((result) => normalizeResult(result));
+  },
   pathExists(path) {
     return ipcRenderer.invoke("path-exists", { path }).then((result) => normalizeResult(result));
   },

@@ -63,6 +63,7 @@ export function Stage0Downloader({
   const [rangeStart, setRangeStart] = useState("1");
   const [rangeEnd, setRangeEnd] = useState("1");
   const [lastOutputDir, setLastOutputDir] = useState(outDir);
+  const [lastChapterDirs, setLastChapterDirs] = useState<string[]>([]);
 
   const selectedChapters = useMemo(
     () => chapters.filter((chapter) => selectedChapterUrls.has(chapter.url)),
@@ -122,6 +123,9 @@ export function Stage0Downloader({
         setProgress(100);
         if (payload.output_dir) {
           setLastOutputDir(payload.output_dir);
+        }
+        if (Array.isArray(payload.chapter_dirs)) {
+          setLastChapterDirs(payload.chapter_dirs);
         }
         setStageMessage(payload.message ?? "Stage 0 complete.");
         return;
@@ -306,6 +310,7 @@ export function Stage0Downloader({
       if (complete) {
         setProgress(100);
         const chapterDirs = complete.chapterDirs || [];
+        setLastChapterDirs(chapterDirs);
         if (chapterDirs.length === 1) {
           setLastOutputDir(chapterDirs[0]);
         } else {
@@ -331,6 +336,42 @@ export function Stage0Downloader({
     } finally {
       setIsRunningStage(false);
     }
+  };
+
+  const handleRenumberPages = async () => {
+    if (!window.gento?.renumberPages) {
+      setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
+      return;
+    }
+
+    const targets = lastChapterDirs.length > 0 ? lastChapterDirs : [lastOutputDir];
+    if (targets.length === 0 || targets.every((value) => !value.trim())) {
+      setStageMessage("No download folder available to renumber.");
+      return;
+    }
+
+    setStageMessage("Renumbering pages...");
+
+    const result = await window.gento.renumberPages(targets);
+    if (!result.ok) {
+      const message = formatRuntimeError(
+        result.error.code,
+        result.error.message,
+        result.error.details,
+      );
+      setStageMessage(message);
+      toast.error("Renumber failed", message);
+      return;
+    }
+
+    const total = result.data.total_renamed ?? 0;
+    const folders = result.data.targets?.length ?? 0;
+    const message =
+      folders > 0
+        ? `Renumbered ${total} page files across ${folders} folder${folders === 1 ? "" : "s"}.`
+        : "No page_*. images found to renumber.";
+    setStageMessage(message);
+    toast.success("Renumber complete", message);
   };
 
   const handleOpenFolder = async () => {
@@ -420,6 +461,10 @@ export function Stage0Downloader({
               }}
             >
               Clear
+            </Button>
+
+            <Button variant="secondary" onClick={handleRenumberPages} disabled={isRunningStage}>
+              Renumber pages
             </Button>
           </div>
 

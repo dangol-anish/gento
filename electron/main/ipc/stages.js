@@ -161,6 +161,100 @@ function parseFlagValue(args, flag) {
   return typeof value === "string" ? value : null;
 }
 
+const PAGE_FILE_REGEX = /^page_(\d+)\.(avif|bmp|gif|heic|heif|jpe?g|png|tiff?|webp)$/i;
+
+function listPageFiles(dirPath) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(`Failed to read directory: ${error?.message || String(error)}`);
+  }
+
+  const pages = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const match = PAGE_FILE_REGEX.exec(entry.name);
+    if (!match) continue;
+    pages.push({
+      name: entry.name,
+      index: Number.parseInt(match[1], 10),
+      ext: path.extname(entry.name),
+    });
+  }
+
+  pages.sort((a, b) => {
+    if (a.index !== b.index) return a.index - b.index;
+    return a.name.localeCompare(b.name);
+  });
+
+  return pages;
+}
+
+function renumberPagesInDir(dirPath) {
+  const pages = listPageFiles(dirPath);
+  if (pages.length === 0) {
+    return { renamedCount: 0, pageCount: 0 };
+  }
+
+  const tmpPrefix = `.gento_renumber_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const tmpNames = new Map(); // original -> tmp
+  const desiredNames = new Map(); // original -> desired
+
+  pages.forEach((page, i) => {
+    const desired = `page_${i + 1}${page.ext}`;
+    desiredNames.set(page.name, desired);
+    tmpNames.set(page.name, `${tmpPrefix}_${i + 1}${page.ext}`);
+  });
+
+  let renamedCount = 0;
+
+  // First pass: move everything to temp names to avoid collisions.
+  for (const page of pages) {
+    const from = path.join(dirPath, page.name);
+    const to = path.join(dirPath, tmpNames.get(page.name));
+    if (from === to) continue;
+    fs.renameSync(from, to);
+  }
+
+  // Second pass: move to final sequential names.
+  for (const page of pages) {
+    const tmp = path.join(dirPath, tmpNames.get(page.name));
+    const desired = path.join(dirPath, desiredNames.get(page.name));
+    if (path.basename(tmp) === path.basename(desired)) continue;
+    fs.renameSync(tmp, desired);
+    renamedCount += 1;
+  }
+
+  return { renamedCount, pageCount: pages.length };
+}
+
+function renumberPagesAtPath(targetPath) {
+  const stat = fs.statSync(targetPath);
+  if (!stat.isDirectory()) {
+    throw new Error("Path must be a directory.");
+  }
+
+  const direct = listPageFiles(targetPath);
+  if (direct.length > 0) {
+    const result = renumberPagesInDir(targetPath);
+    return [{ path: targetPath, ...result }];
+  }
+
+  // Otherwise, try one level of chapter subdirectories.
+  const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+  const results = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const chapterPath = path.join(targetPath, entry.name);
+    const pages = listPageFiles(chapterPath);
+    if (pages.length === 0) continue;
+    const result = renumberPagesInDir(chapterPath);
+    results.push({ path: chapterPath, ...result });
+  }
+  return results;
+}
+
 function isLocalOllamaHost(host) {
   try {
     const url = new URL(host);
@@ -411,6 +505,46 @@ function registerStageIpcHandlers() {
     const resolvedPath = path.resolve(getUserWorkspaceDir(), payload.path);
     try {
       return createSuccess({ path: resolvedPath, exists: fs.existsSync(resolvedPath) });
+    } catch (error) {
+      return toUnknownError(error);
+    }
+  });
+
+  handle("renumber-pages", async (_event, payload) => {
+    if (!payload || typeof payload !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
+    }
+
+    const inputPath = typeof payload.path === "string" ? payload.path : null;
+    const inputPaths = Array.isArray(payload.paths) ? payload.paths : null;
+
+    const targets = [];
+    if (inputPath) targets.push(inputPath);
+    if (inputPaths) targets.push(...inputPaths.filter((value) => typeof value === "string"));
+
+    if (targets.length === 0) {
+      return createError(ErrorCodes.INVALID_REQUEST, "Provide path or paths.");
+    }
+
+    try {
+      const normalizedTargets = targets.map((value) => path.resolve(getUserWorkspaceDir(), value));
+      const allResults = [];
+      let totalRenamed = 0;
+      for (const target of normalizedTargets) {
+        if (!fs.existsSync(target)) {
+          return createError(ErrorCodes.INVALID_REQUEST, "Path does not exist.", { path: target });
+        }
+        const results = renumberPagesAtPath(target);
+        for (const result of results) {
+          totalRenamed += result.renamedCount;
+          allResults.push({
+            path: result.path,
+            renamed_count: result.renamedCount,
+            page_count: result.pageCount,
+          });
+        }
+      }
+      return createSuccess({ targets: allResults, total_renamed: totalRenamed });
     } catch (error) {
       return toUnknownError(error);
     }

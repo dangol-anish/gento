@@ -15,6 +15,15 @@ type AppSettingsSummary = {
   hasGeminiApiKey: boolean;
 };
 
+type RenumberPagesResult = {
+  targets: Array<{
+    path: string;
+    renamed_count: number;
+    page_count: number;
+  }>;
+  total_renamed: number;
+};
+
 type StageEvent = {
   type: "progress" | "complete" | "error" | "log";
   stage?: number;
@@ -74,6 +83,7 @@ declare global {
         }>
       >;
       openPath: (path: string) => Promise<GentoResult<{ path: string }>>;
+      renumberPages: (pathOrPaths: string | string[]) => Promise<GentoResult<RenumberPagesResult>>;
       pathExists: (path: string) => Promise<GentoResult<{ path: string; exists: boolean }>>;
       onStageEvent: (callback: (payload: StageEvent) => void) => () => void;
       reportError: (error: unknown, context?: Record<string, unknown>) => Promise<GentoResult<{ logId: string }>>;
