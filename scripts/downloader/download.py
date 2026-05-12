@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+from urllib.parse import urlparse
 
 import httpx
 
@@ -21,7 +22,19 @@ async def download_image(
     for attempt in range(retries):
         try:
             headers = BASE_HEADERS.copy()
-            headers["Referer"] = chapter_url
+            # Some sources (notably Cloudflare-protected ones) require a stable
+            # site-level referer for image/CDN requests.
+            referer = chapter_url
+            try:
+                host = (urlparse(chapter_url).hostname or "").lower()
+                if host in {"weebcentral.com", "www.weebcentral.com"}:
+                    referer = "https://weebcentral.com/"
+                elif host in {"mangapill.com", "www.mangapill.com"}:
+                    referer = "https://mangapill.com/"
+            except Exception:
+                referer = chapter_url
+
+            headers["Referer"] = referer
 
             response = await client.get(url, headers=headers)
             response.raise_for_status()
