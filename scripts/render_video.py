@@ -436,9 +436,23 @@ def _render_panel_with_transition(
          Uses -loop 1 on a single image for efficiency.
       3. Concatenate intro + static with stream copy (instant).
     """
-    N = max(2, transition_frames)
-    transition_dur_s = N / float(fps)
+    # If the panel is only *slightly* longer than the transition duration, the
+    # remaining static clip may be <1 frame. That can lead to flaky/slow
+    # behavior and can leave behind a corrupted MP4 if the encode is interrupted.
+    #
+    # In that case, render the whole panel as a single "intro" clip by
+    # extending the transition to cover the full duration (ceil to frames).
+    N_default = max(2, transition_frames)
+    total_frames = max(2, int(math.ceil(max(0.0, float(dur_s)) * float(fps))))
+    N = N_default
+    # Use the requested duration for the container timeline; the filtergraph
+    # itself trims to `N` frames so we won't exceed by more than ~1 frame.
+    transition_dur_s = float(dur_s) if dur_s > 0 else (N / float(fps))
     static_dur_s = max(0.0, dur_s - transition_dur_s)
+    if static_dur_s * float(fps) < 1.0:
+        N = max(N_default, total_frames)
+        transition_dur_s = float(dur_s) if dur_s > 0 else (N / float(fps))
+        static_dur_s = 0.0
 
     seg_dir = out_path.parent
     seg_dir.mkdir(parents=True, exist_ok=True)
