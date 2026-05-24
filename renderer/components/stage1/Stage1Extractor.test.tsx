@@ -9,6 +9,7 @@ declare global {
     gento?: {
       runStage?: (stage: number, args: string[]) => Promise<any>;
       openPath?: (path: string) => Promise<any>;
+      listDownloadsLibrary?: (root?: string) => Promise<any>;
       onStageEvent?: (callback: (payload: any) => void) => () => void;
     };
   }
@@ -41,7 +42,13 @@ function setReactInputValue(input: HTMLInputElement, value: string) {
 
 describe("Stage1Extractor", () => {
   it("renders the fixed model id as read-only", () => {
-    window.gento = {};
+    window.gento = {
+      listDownloadsLibrary: vi.fn(async () => ({
+        ok: true,
+        data: { root: "./downloads", mangas: [] },
+        error: null,
+      })),
+    };
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="./output" />);
 
     const modelInput = container.querySelector(`input[readonly][value="${STAGE1_MODEL}"]`);
@@ -57,6 +64,11 @@ describe("Stage1Extractor", () => {
         listener.mockImplementation(cb);
         return () => {};
       },
+      listDownloadsLibrary: vi.fn(async () => ({
+        ok: true,
+        data: { root: "./downloads", mangas: [] },
+        error: null,
+      })),
       openPath: vi.fn(async () => ({ ok: true, data: { path: "/tmp" }, error: null })),
       runStage: vi.fn(async () => ({ ok: true, data: { events: [] }, error: null })),
     };
@@ -93,31 +105,40 @@ describe("Stage1Extractor", () => {
   it("validates required inputs before running", async () => {
     window.gento = {
       runStage: vi.fn(async () => ({ ok: true, data: { events: [] }, error: null })),
+      listDownloadsLibrary: vi.fn(async () => ({
+        ok: true,
+        data: {
+          root: "./downloads",
+          mangas: [{ name: "My Manga", path: "./downloads/My Manga", chapters: [{ name: "Chapter 1", path: "./downloads/My Manga/Chapter 1" }] }],
+        },
+        error: null,
+      })),
     };
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="./output" />);
 
-    const imagesInput = container.querySelector('input[placeholder="./downloads/Your Manga/Chapter 1"]') as
-      | HTMLInputElement
-      | null;
     const chapterInput = container.querySelector('input[placeholder="chapter_1"]') as HTMLInputElement | null;
     const runButton = Array.from(container.querySelectorAll("button")).find(
       (btn) => btn.textContent?.includes("Run Stage 1"),
     ) as HTMLButtonElement | undefined;
 
-    expect(imagesInput).not.toBeNull();
     expect(chapterInput).not.toBeNull();
     expect(runButton).toBeTruthy();
 
-    act(() => {
-      setReactInputValue(imagesInput!, "");
-    });
     await tick();
     act(() => runButton!.click());
     await tick();
-    expect(container.textContent).toContain("Please provide the downloaded images folder.");
+    expect(container.textContent).toContain("Select one or more chapter folders");
+
+    const chapterLabel = Array.from(container.querySelectorAll("label")).find((label) =>
+      label.textContent?.includes("Chapter 1"),
+    ) as HTMLLabelElement | undefined;
+    expect(chapterLabel).toBeTruthy();
+    const chapterCheckbox = chapterLabel!.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    expect(chapterCheckbox).not.toBeNull();
+    act(() => chapterCheckbox!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await tick();
 
     act(() => {
-      setReactInputValue(imagesInput!, "./downloads/My Manga/Chapter 1");
       setReactInputValue(chapterInput!, "");
     });
     await tick();
@@ -134,26 +155,43 @@ describe("Stage1Extractor", () => {
       data: {
         events: [
           { type: "progress", stage: 1, percent: 80, message: "Processing..." },
-          { type: "complete", stage: 1, storyboard_path: "output/final/storyboard.json" },
+          { type: "complete", stage: 1, storyboard_path: "output/My Manga/final/storyboard.json" },
         ],
       },
       error: null,
     }));
-    window.gento = { runStage };
+    window.gento = {
+      runStage,
+      listDownloadsLibrary: vi.fn(async () => ({
+        ok: true,
+        data: {
+          root: "./downloads",
+          mangas: [
+            {
+              name: "My Manga",
+              path: "./downloads/My Manga",
+              chapters: [{ name: "Chapter 1", path: "./downloads/My Manga/Chapter 1" }],
+            },
+          ],
+        },
+        error: null,
+      })),
+    };
 
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="output" />);
-    const imagesInput = container.querySelector('input[placeholder="./downloads/Your Manga/Chapter 1"]') as
-      | HTMLInputElement
-      | null;
     const runButton = Array.from(container.querySelectorAll("button")).find(
       (btn) => btn.textContent?.includes("Run Stage 1"),
     ) as HTMLButtonElement | undefined;
     expect(runButton).toBeTruthy();
-    expect(imagesInput).not.toBeNull();
 
-    act(() => {
-      setReactInputValue(imagesInput!, "./downloads/My Manga/Chapter 1");
-    });
+    await tick();
+    const chapterLabel = Array.from(container.querySelectorAll("label")).find((label) =>
+      label.textContent?.includes("Chapter 1"),
+    ) as HTMLLabelElement | undefined;
+    expect(chapterLabel).toBeTruthy();
+    const chapterCheckbox = chapterLabel!.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    expect(chapterCheckbox).not.toBeNull();
+    act(() => chapterCheckbox!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await tick();
 
     await act(async () => {
@@ -165,6 +203,8 @@ describe("Stage1Extractor", () => {
     expect(stage).toBe(1);
     expect(args).toContain("--model");
     expect(args).toContain(STAGE1_MODEL);
+    expect(args).toContain("--out");
+    expect(args).toContain("output/My Manga");
     expect(container.textContent).toContain("Stage 1 complete:");
     expect(getProgressValue(container)).toBe("100");
 
@@ -178,20 +218,36 @@ describe("Stage1Extractor", () => {
         data: null,
         error: { code: "PROCESS_EXIT_NON_ZERO", message: "bad", details: { stderr: "No module named 'torch'" } },
       })),
+      listDownloadsLibrary: vi.fn(async () => ({
+        ok: true,
+        data: {
+          root: "./downloads",
+          mangas: [
+            {
+              name: "My Manga",
+              path: "./downloads/My Manga",
+              chapters: [{ name: "Chapter 1", path: "./downloads/My Manga/Chapter 1" }],
+            },
+          ],
+        },
+        error: null,
+      })),
     };
 
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="output" />);
-    const imagesInput = container.querySelector('input[placeholder="./downloads/Your Manga/Chapter 1"]') as
-      | HTMLInputElement
-      | null;
     const runButton = Array.from(container.querySelectorAll("button")).find(
       (btn) => btn.textContent?.includes("Run Stage 1"),
     ) as HTMLButtonElement | undefined;
-    expect(imagesInput).not.toBeNull();
 
-    act(() => {
-      setReactInputValue(imagesInput!, "./downloads/My Manga/Chapter 1");
-    });
+    await tick();
+    await tick();
+    const chapterLabel = Array.from(container.querySelectorAll("label")).find((label) =>
+      label.textContent?.includes("Chapter 1"),
+    ) as HTMLLabelElement | undefined;
+    expect(chapterLabel).toBeTruthy();
+    const chapterCheckbox = chapterLabel!.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    expect(chapterCheckbox).not.toBeNull();
+    act(() => chapterCheckbox!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await tick();
 
     await act(async () => {
@@ -206,7 +262,14 @@ describe("Stage1Extractor", () => {
 
   it("opens output folder and reports failures", async () => {
     const openPath = vi.fn(async () => ({ ok: false, data: null, error: { code: "X", message: "Nope" } }));
-    window.gento = { openPath };
+    window.gento = {
+      openPath,
+      listDownloadsLibrary: vi.fn(async () => ({
+        ok: true,
+        data: { root: "./downloads", mangas: [] },
+        error: null,
+      })),
+    };
 
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="/tmp/out" />);
     const openButton = container.querySelector('button[aria-label="Open output folder"]') as HTMLButtonElement | null;
@@ -229,9 +292,16 @@ describe("Stage1Extractor", () => {
         stageListener = cb;
         return () => {};
       },
+      listDownloadsLibrary: vi.fn(async () => ({
+        ok: true,
+        data: { root: "./downloads", mangas: [] },
+        error: null,
+      })),
     };
 
     const { container, root } = renderIntoDocument(<Stage1Extractor outDir="./output" />);
+    await tick();
+    await tick();
 
     act(() => {
       stageListener?.({ type: "progress", stage: 1, percent: 50, message: "Halfway" });

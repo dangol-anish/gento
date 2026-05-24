@@ -43,6 +43,11 @@ contextBridge.exposeInMainWorld("gento", {
       .invoke("run-stage", { stage, args })
       .then((result) => normalizeResult(result));
   },
+  listDownloadsLibrary(root = "./downloads") {
+    return ipcRenderer
+      .invoke("list-downloads-library", { root })
+      .then((result) => normalizeResult(result));
+  },
   getAppSettings() {
     return ipcRenderer.invoke("get-app-settings").then((result) => normalizeResult(result));
   },

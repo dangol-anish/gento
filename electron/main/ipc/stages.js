@@ -427,6 +427,57 @@ function registerStageIpcHandlers() {
     });
   };
 
+  handle("list-downloads-library", async (_event, payload) => {
+    const root = payload && typeof payload === "object" && typeof payload.root === "string" ? payload.root : "./downloads";
+    const workspace = getUserWorkspaceDir();
+    const resolvedRoot = path.resolve(workspace, root);
+
+    const toRelPath = (absPath) => {
+      const rel = path.relative(workspace, absPath);
+      const normalized = rel.split(path.sep).join(path.posix.sep);
+      return normalized.startsWith(".") ? normalized : `./${normalized}`;
+    };
+
+    try {
+      if (!fs.existsSync(resolvedRoot)) {
+        return createSuccess({ root: toRelPath(resolvedRoot), mangas: [] });
+      }
+
+      const mangaEntries = fs
+        .readdirSync(resolvedRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => {
+          const mangaName = entry.name;
+          const mangaAbs = path.join(resolvedRoot, mangaName);
+          const chapters = fs
+            .readdirSync(mangaAbs, { withFileTypes: true })
+            .filter((child) => child.isDirectory())
+            .map((child) => {
+              const chapterAbs = path.join(mangaAbs, child.name);
+              return {
+                name: child.name,
+                path: toRelPath(chapterAbs),
+              };
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            name: mangaName,
+            path: toRelPath(mangaAbs),
+            chapters,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      return createSuccess({ root: toRelPath(resolvedRoot), mangas: mangaEntries });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to scan downloads library.", {
+        root: resolvedRoot,
+        reason: error?.message || String(error),
+      });
+    }
+  });
+
   handle("get-app-settings", async () => {
     const settings = readAppSettings();
     const anthropicApiKey = typeof settings.anthropicApiKey === "string" ? settings.anthropicApiKey.trim() : "";

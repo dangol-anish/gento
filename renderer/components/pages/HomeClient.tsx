@@ -74,7 +74,6 @@ export default function HomeClient() {
     "pipeline",
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [recentChapterDirs, setRecentChapterDirs] = useState<string[]>([]);
   const [prereqReport, setPrereqReport] = useState<PrereqReport | null>(null);
   const [prereqAutoInstall, setPrereqAutoInstall] = useState(false);
   const [isCheckingPrereqs, setIsCheckingPrereqs] = useState(false);
@@ -201,13 +200,12 @@ export default function HomeClient() {
                   <Stage0Downloader
                     outDir="./downloads"
                     onSessionUpdate={setSessionState}
-                    onDownloadComplete={(chapterDirs) => setRecentChapterDirs(chapterDirs)}
+                    onDownloadComplete={() => {}}
                   />
                 ) : activeStage === 1 ? (
                   <Stage1Extractor
                     outDir="./output"
                     onSessionUpdate={setSessionState}
-                    recentChapterDirs={recentChapterDirs}
                   />
                 ) : activeStage === 2 ? (
                   <Stage2GeminiAccuracyPass onSessionUpdate={setSessionState} />

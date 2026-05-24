@@ -32,13 +32,47 @@ export type Stage1Session = {
 type Props = {
   outDir?: string;
   onSessionUpdate?: (session: Stage1Session) => void;
-  recentChapterDirs?: string[];
 };
 
-export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentChapterDirs = [] }: Props) {
+type DownloadsLibrary = {
+  root: string;
+  mangas: Array<{
+    name: string;
+    path: string;
+    chapters: Array<{ name: string; path: string }>;
+  }>;
+};
+
+type QueueContext = { index: number; total: number; mangaName: string } | null;
+
+function normalizePosixPath(value: string) {
+  return value.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
+}
+
+function safeFolderName(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "unknown";
+  return trimmed.replace(/[\\/:"*?<>|]+/g, "_");
+}
+
+function extractMangaNameFromChapterPath(chapterPath: string, downloadsRoot: string) {
+  const root = normalizePosixPath(downloadsRoot).replace(/^\.\//, "");
+  const chapter = normalizePosixPath(chapterPath).replace(/^\.\//, "");
+  if (!root || !chapter) return null;
+  if (!chapter.startsWith(root + "/")) return null;
+  const remainder = chapter.slice((root + "/").length);
+  const first = remainder.split("/")[0];
+  return first || null;
+}
+
+export function Stage1Extractor({ outDir = "./output", onSessionUpdate }: Props) {
   const toast = useToast();
-  const [imageFolder, setImageFolder] = useState("./downloads");
-  const [selectedImageFolders, setSelectedImageFolders] = useState<string[]>([]);
+  const [downloadsRoot, setDownloadsRoot] = useState("./downloads");
+  const [library, setLibrary] = useState<DownloadsLibrary | null>(null);
+  const [activeMangaPath, setActiveMangaPath] = useState<string>("");
+  const [chapterFilter, setChapterFilter] = useState("");
+  const [selectedChapterDirs, setSelectedChapterDirs] = useState<string[]>([]);
+  const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
   const [chapterId, setChapterId] = useState("chapter_1");
   const [device, setDevice] = useState<"auto" | "cpu" | "mps" | "cuda">("auto");
   const [allowDownloads, setAllowDownloads] = useState(false);
@@ -49,39 +83,58 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
   const [lastOutputDir, setLastOutputDir] = useState(outDir);
   const [storyboardPath, setStoryboardPath] = useState("");
   const [storyboardPaths, setStoryboardPaths] = useState<string[]>([]);
+  const [queueContext, setQueueContext] = useState<QueueContext>(null);
 
   const sessionState = useMemo<Stage1Session>(
     () => ({
-      mangaUrl: imageFolder,
-      totalChapters: 0,
-      selectedChapters: 0,
+      mangaUrl: downloadsRoot,
+      totalChapters: library?.mangas.reduce((sum, manga) => sum + manga.chapters.length, 0) ?? 0,
+      selectedChapters: selectedChapterDirs.length,
       progress,
       isScraping: false,
       isRunningStage,
       lastOutputDir,
       stageMessage,
     }),
-    [imageFolder, progress, isRunningStage, lastOutputDir, stageMessage],
+    [downloadsRoot, library, progress, isRunningStage, lastOutputDir, selectedChapterDirs.length, stageMessage],
   );
 
   useEffect(() => {
     onSessionUpdate?.(sessionState);
   }, [onSessionUpdate, sessionState]);
 
-  useEffect(() => {
-    if (imageFolder.trim() !== "./downloads") {
+  const refreshLibrary = async (nextRoot?: string) => {
+    if (!window.gento?.listDownloadsLibrary) {
+      setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
       return;
     }
-    if (recentChapterDirs.length === 1) {
-      setImageFolder(recentChapterDirs[0]);
+    setIsLoadingLibrary(true);
+    try {
+      const root = (nextRoot ?? downloadsRoot).trim() || "./downloads";
+      const result = await window.gento.listDownloadsLibrary(root);
+      if (!result.ok) {
+        const message = formatRuntimeError(result.error.code, result.error.message, result.error.details);
+        setStageMessage(message);
+        toast.error("Failed to scan downloads", message);
+        return;
+      }
+      setLibrary(result.data);
+      setActiveMangaPath((current) => {
+        if (current && result.data.mangas.some((manga) => manga.path === current)) {
+          return current;
+        }
+        return result.data.mangas[0]?.path ?? "";
+      });
+      setStageMessage("Downloads library refreshed.");
+    } finally {
+      setIsLoadingLibrary(false);
     }
-  }, [imageFolder, recentChapterDirs]);
+  };
 
   useEffect(() => {
-    if (selectedImageFolders.length > 0) {
-      setImageFolder(selectedImageFolders[0]);
-    }
-  }, [selectedImageFolders]);
+    refreshLibrary().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!window.gento?.onStageEvent) {
@@ -99,14 +152,22 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
           setProgress(payload.percent);
         }
         if (payload.message) {
-          setStageMessage(payload.message);
+          setStageMessage(
+            queueContext
+              ? `(${queueContext.index}/${queueContext.total}) ${queueContext.mangaName}: ${payload.message}`
+              : payload.message,
+          );
         }
         return;
       }
 
       if (payload.type === "log") {
         if (payload.message) {
-          setStageMessage(payload.message);
+          setStageMessage(
+            queueContext
+              ? `(${queueContext.index}/${queueContext.total}) ${queueContext.mangaName}: ${payload.message}`
+              : payload.message,
+          );
         }
         return;
       }
@@ -116,7 +177,6 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
         const summaryPaths = Array.isArray(payload.storyboard_paths) ? payload.storyboard_paths : [];
         setStoryboardPath(summary);
         setStoryboardPaths(summaryPaths);
-        setLastOutputDir(outDir);
         setProgress(100);
         setStageMessage(payload.message ?? "Stage 1 extraction complete.");
         toast.success(
@@ -138,9 +198,7 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
             ? (payload.error as { message?: string }).message
             : undefined;
 
-        setStageMessage(
-          errorMessage || payload.message || "Stage 1 extraction failed.",
-        );
+        setStageMessage(errorMessage || payload.message || "Stage 1 extraction failed.");
         toast.error("Stage 1 failed", errorMessage || payload.message || "Stage 1 extraction failed.");
         setProgress(0);
         setIsRunningStage(false);
@@ -149,24 +207,13 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
     });
 
     return unsubscribe;
-  }, [outDir]);
+  }, [queueContext, toast]);
 
   const handleRunStage1 = async () => {
-    const imagesDirs = (selectedImageFolders.length > 0 ? selectedImageFolders : [imageFolder])
-      .map((value) => value.trim())
-      .filter(Boolean);
-
+    const imagesDirs = selectedChapterDirs.map((value) => value.trim()).filter(Boolean);
     if (imagesDirs.length === 0) {
-      setStageMessage("Please provide the downloaded images folder.");
-      return;
-    }
-
-    if (imagesDirs.some((dir) => dir === "./downloads")) {
-      setStageMessage("Please select specific chapter folder(s), not the downloads root.");
-      toast.error(
-        "Select chapter folder(s)",
-        "Stage 1 expects chapter folders containing page_*.jpg files (not the downloads root).",
-      );
+      setStageMessage("Select one or more chapter folders from Downloads first.");
+      toast.error("No chapters selected", "Select at least one chapter folder to extract.");
       return;
     }
 
@@ -185,48 +232,71 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
 
     setIsRunningStage(true);
     setHasStageStarted(true);
-    setProgress(10);
-    setStageMessage("Starting Stage 1 extraction...");
 
-    const args = buildStage1Args({
-      chapterId: chapterId.trim(),
-      imagesDirs,
-      outDir,
-      device,
-      allowDownloads,
-    });
+    const groups = new Map<string, string[]>();
+    for (const dir of imagesDirs) {
+      const mangaName = extractMangaNameFromChapterPath(dir, downloadsRoot) ?? "unknown";
+      groups.set(mangaName, [...(groups.get(mangaName) ?? []), dir]);
+    }
+
+    const mangaRuns = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const allStoryboards: string[] = [];
+    const totalRuns = mangaRuns.length;
 
     try {
-      const result = await window.gento.runStage(1, args);
-      if (!result.ok) {
-        const message = formatRuntimeError(result.error.code, result.error.message, result.error.details);
-        setStageMessage(message);
-        toast.error("Extraction failed", message);
+      for (let i = 0; i < mangaRuns.length; i += 1) {
+        const [mangaName, chapterDirs] = mangaRuns[i];
+        const safeMangaName = safeFolderName(mangaName);
+        const mangaOutDir = `${normalizePosixPath(outDir)}/${safeMangaName}`;
+
+        setQueueContext({ index: i + 1, total: totalRuns, mangaName });
+        setLastOutputDir(mangaOutDir);
         setProgress(0);
-        return;
+        setStageMessage(`(${i + 1}/${totalRuns}) ${mangaName}: starting Stage 1 extraction...`);
+
+        const args = buildStage1Args({
+          chapterId: chapterId.trim(),
+          imagesDirs: chapterDirs,
+          outDir: mangaOutDir,
+          device,
+          allowDownloads,
+        });
+
+        const result = await window.gento.runStage(1, args);
+        if (!result.ok) {
+          const message = formatRuntimeError(result.error.code, result.error.message, result.error.details);
+          setStageMessage(message);
+          toast.error("Extraction failed", message);
+          setProgress(0);
+          return;
+        }
+
+        const events = result.data?.events || [];
+        const lastPercent = extractLastPercent(events);
+        if (lastPercent !== null) {
+          setProgress(lastPercent);
+        }
+
+        const complete = extractCompleteSummary(events);
+        if (complete?.storyboardPaths && complete.storyboardPaths.length > 0) {
+          allStoryboards.push(...complete.storyboardPaths);
+        } else if (complete?.storyboardPath) {
+          allStoryboards.push(complete.storyboardPath);
+        }
       }
 
-      const events = result.data?.events || [];
-      const lastPercent = extractLastPercent(events);
-      if (lastPercent !== null) {
-        setProgress(lastPercent);
-      }
-
-      const complete = extractCompleteSummary(events);
-      if (complete?.storyboardPaths && complete.storyboardPaths.length > 0) {
-        setStoryboardPaths(complete.storyboardPaths);
+      if (allStoryboards.length > 1) {
+        setStoryboardPaths(allStoryboards);
         setStoryboardPath("");
-        setLastOutputDir(outDir);
         setProgress(100);
-        setStageMessage(`Stage 1 complete: wrote ${complete.storyboardPaths.length} storyboards.`);
-        toast.success("Stage 1 complete", `Wrote ${complete.storyboardPaths.length} storyboards`);
-      } else if (complete?.storyboardPath) {
-        setStoryboardPath(complete.storyboardPath);
+        setStageMessage(`Stage 1 complete: wrote ${allStoryboards.length} storyboards.`);
+        toast.success("Stage 1 complete", `Wrote ${allStoryboards.length} storyboards`);
+      } else if (allStoryboards.length === 1) {
+        setStoryboardPath(allStoryboards[0]);
         setStoryboardPaths([]);
-        setLastOutputDir(outDir);
         setProgress(100);
-        setStageMessage(`Stage 1 complete: ${complete.storyboardPath}`);
-        toast.success("Stage 1 complete", `Wrote ${complete.storyboardPath}`);
+        setStageMessage(`Stage 1 complete: ${allStoryboards[0]}`);
+        toast.success("Stage 1 complete", `Wrote ${allStoryboards[0]}`);
       } else {
         setProgress(100);
         setStageMessage("Stage 1 extraction finished.");
@@ -238,12 +308,13 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
       toast.error("Extraction failed", message);
       setProgress(0);
     } finally {
+      setQueueContext(null);
       setIsRunningStage(false);
       setHasStageStarted(false);
     }
   };
 
-  const handleOpenFolder = async () => {
+  const handleOpenOutputFolder = async () => {
     if (!window.gento?.openPath) {
       setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
       return;
@@ -256,23 +327,41 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
     }
   };
 
-  const handleAddFolder = () => {
-    const next = imageFolder.trim();
-    if (!next) return;
-    if (next === "./downloads") {
-      toast.error("Select a chapter folder", "Don't add the downloads root.");
+  const handleOpenDownloadsFolder = async () => {
+    if (!window.gento?.openPath) {
+      setStageMessage("Desktop bridge is unavailable. Restart Electron to reload preload.");
       return;
     }
-    setSelectedImageFolders((current) => (current.includes(next) ? current : [...current, next]));
+    const result = await window.gento.openPath(downloadsRoot);
+    if (!result.ok) {
+      const message = `Failed to open folder: ${result.error.message}`;
+      setStageMessage(message);
+      toast.error("Open folder failed", result.error.message);
+    }
   };
 
-  const handleRemoveFolder = (folder: string) => {
-    setSelectedImageFolders((current) => current.filter((value) => value !== folder));
+  const activeManga = useMemo(() => {
+    return library?.mangas.find((manga) => manga.path === activeMangaPath) ?? null;
+  }, [activeMangaPath, library]);
+
+  const visibleChapters = useMemo(() => {
+    const chapters = activeManga?.chapters ?? [];
+    const filter = chapterFilter.trim().toLowerCase();
+    if (!filter) return chapters;
+    return chapters.filter((chapter) => chapter.name.toLowerCase().includes(filter));
+  }, [activeManga, chapterFilter]);
+
+  const toggleChapterSelection = (chapterDir: string) => {
+    setSelectedChapterDirs((current) =>
+      current.includes(chapterDir) ? current.filter((value) => value !== chapterDir) : [...current, chapterDir],
+    );
   };
 
-  const handleClearFolders = () => {
-    setSelectedImageFolders([]);
+  const removeSelectedChapter = (chapterDir: string) => {
+    setSelectedChapterDirs((current) => current.filter((value) => value !== chapterDir));
   };
+
+  const clearSelectedChapters = () => setSelectedChapterDirs([]);
 
   return (
     <Card className="lg:flex lg:flex-col lg:min-h-0 lg:h-full">
@@ -284,82 +373,128 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
       </CardHeader>
 
       <CardContent className="space-y-5 p-5 pt-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
-        {recentChapterDirs.length > 0 ? (
-          <div className="space-y-2">
-            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Recent downloads
-            </label>
-            <div className="flex gap-2">
-              <select
-                value={recentChapterDirs.includes(imageFolder) ? imageFolder : ""}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  if (next) setImageFolder(next);
-                }}
-                className="glass-interactive h-10 w-full appearance-none rounded-xl border px-3 pr-9 text-sm text-foreground outline-none"
-              >
-                <option value="" disabled>
-                  Select a chapter folder…
-                </option>
-                {recentChapterDirs.map((dir) => (
-                  <option key={dir} value={dir}>
-                    {dir}
-                  </option>
-                ))}
-              </select>
-              <Button variant="secondary" onClick={handleAddFolder} className="shrink-0">
-                Add
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Pick a recent chapter folder and click Add (repeat to select multiple).
-            </p>
-          </div>
-        ) : null}
-
         <div className="space-y-2">
           <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Images folder (manual)
+            Downloads library
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input
               type="text"
-              value={imageFolder}
-              onChange={(event) => setImageFolder(event.target.value)}
-              placeholder="./downloads/Your Manga/Chapter 1"
-              className="glass-interactive h-10 w-full rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground border"
+              value={downloadsRoot}
+              onChange={(event) => setDownloadsRoot(event.target.value)}
+              placeholder="./downloads"
+              className="glass-interactive h-10 min-w-[240px] flex-1 rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground border"
             />
-            <Button variant="secondary" onClick={handleAddFolder} className="shrink-0">
-              Add
+            <Button
+              variant="secondary"
+              onClick={() => refreshLibrary(downloadsRoot)}
+              disabled={isLoadingLibrary}
+              className="shrink-0"
+            >
+              {isLoadingLibrary ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Button variant="secondary" onClick={handleOpenDownloadsFolder} className="shrink-0">
+              Open
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Add one or more chapter folders here (optional). If you add folders, Stage 1 runs on the list below.
+            Select chapters from multiple manga. Selections persist as you browse.
           </p>
         </div>
 
-        {selectedImageFolders.length > 0 ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Manga
+            </label>
+            <div className="glass-surface max-h-56 overflow-y-auto rounded-2xl border border-border/60 p-2">
+              {library?.mangas?.length ? (
+                <div className="space-y-1">
+                  {library.mangas.map((manga) => (
+                    <button
+                      key={manga.path}
+                      type="button"
+                      onClick={() => setActiveMangaPath(manga.path)}
+                      className={`w-full rounded-xl px-3 py-2 text-left text-sm ${
+                        manga.path === activeMangaPath
+                          ? "bg-accent/70 text-foreground"
+                          : "hover:bg-accent/40 text-muted-foreground"
+                      }`}
+                    >
+                      <span className="truncate">{manga.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-2 py-2 text-sm text-muted-foreground">
+                  No downloads found in {downloadsRoot}.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Chapters {activeManga ? `(${activeManga.name})` : ""}
+              </label>
+              <input
+                type="text"
+                value={chapterFilter}
+                onChange={(event) => setChapterFilter(event.target.value)}
+                placeholder="Filter…"
+                className="glass-interactive h-8 w-40 rounded-xl px-3 text-xs text-foreground outline-none placeholder:text-muted-foreground border"
+              />
+            </div>
+            <div className="glass-surface max-h-56 overflow-y-auto rounded-2xl border border-border/60 p-2">
+              {activeManga?.chapters?.length ? (
+                <div className="space-y-1">
+                  {visibleChapters.map((chapter) => {
+                    const checked = selectedChapterDirs.includes(chapter.path);
+                    return (
+                      <label
+                        key={chapter.path}
+                        className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm hover:bg-accent/40"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleChapterSelection(chapter.path)}
+                          className="h-4 w-4 accent-black"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-foreground">{chapter.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="px-2 py-2 text-sm text-muted-foreground">Select a manga to see chapters.</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {selectedChapterDirs.length > 0 ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Selected chapters
+                Selected chapters ({selectedChapterDirs.length})
               </label>
-              <Button variant="secondary" size="sm" onClick={handleClearFolders}>
-                Clear list
+              <Button variant="secondary" size="sm" onClick={clearSelectedChapters}>
+                Clear selection
               </Button>
             </div>
-            <div className="space-y-2">
-              {selectedImageFolders.map((folder) => (
-                <div
-                  key={folder}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-sm"
-                >
-                  <span className="min-w-0 flex-1 truncate text-foreground">{folder}</span>
-                  <Button variant="secondary" size="sm" onClick={() => handleRemoveFolder(folder)}>
-                    Remove
-                  </Button>
-                </div>
-              ))}
+            <div className="glass-surface max-h-44 overflow-y-auto rounded-2xl border border-border/60 p-2">
+              <div className="space-y-1">
+                {selectedChapterDirs.map((dir) => (
+                  <div key={dir} className="flex items-center gap-2 rounded-xl px-2 py-2 text-sm hover:bg-accent/40">
+                    <span className="min-w-0 flex-1 truncate text-foreground">{dir}</span>
+                    <Button variant="secondary" size="sm" onClick={() => removeSelectedChapter(dir)}>
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ) : null}
@@ -384,7 +519,7 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
             </label>
             <input
               type="text"
-              value={outDir}
+              value={`${normalizePosixPath(outDir)}/<manga_name>/final`}
               readOnly
               className="glass-surface h-10 w-full rounded-xl px-3 text-sm text-muted-foreground outline-none border"
             />
@@ -465,6 +600,8 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
               onClick={() => {
                 setProgress(0);
                 setIsRunningStage(false);
+                setHasStageStarted(false);
+                setQueueContext(null);
                 setStageMessage("Progress cleared.");
               }}
             >
@@ -474,7 +611,7 @@ export function Stage1Extractor({ outDir = "./output", onSessionUpdate, recentCh
 
           <Button
             variant="secondary"
-            onClick={handleOpenFolder}
+            onClick={handleOpenOutputFolder}
             aria-label="Open output folder"
             title="Open output folder"
             className="h-10 w-10 p-0"

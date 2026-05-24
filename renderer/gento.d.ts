@@ -24,6 +24,15 @@ type RenumberPagesResult = {
   total_renamed: number;
 };
 
+type DownloadsLibrary = {
+  root: string;
+  mangas: Array<{
+    name: string;
+    path: string;
+    chapters: Array<{ name: string; path: string }>;
+  }>;
+};
+
 type StageEvent = {
   type: "progress" | "complete" | "error" | "log";
   stage?: number;
@@ -63,6 +72,7 @@ declare global {
   interface Window {
     gento: {
       runStage: (stage: number, args?: string[]) => Promise<GentoResult<{ events: StageEvent[] }>>;
+      listDownloadsLibrary: (root?: string) => Promise<GentoResult<DownloadsLibrary>>;
       getAppSettings: () => Promise<GentoResult<AppSettingsSummary>>;
       setAppSettings: (patch: { anthropicApiKey?: string; geminiApiKey?: string }) => Promise<GentoResult<AppSettingsSummary>>;
       importStage4FinalScript: (
