@@ -48,6 +48,11 @@ contextBridge.exposeInMainWorld("gento", {
       .invoke("list-downloads-library", { root })
       .then((result) => normalizeResult(result));
   },
+  listOutputLibrary(root = "./output") {
+    return ipcRenderer
+      .invoke("list-output-library", { root })
+      .then((result) => normalizeResult(result));
+  },
   getAppSettings() {
     return ipcRenderer.invoke("get-app-settings").then((result) => normalizeResult(result));
   },
@@ -57,6 +62,11 @@ contextBridge.exposeInMainWorld("gento", {
   importStage4FinalScript(recapPath, finalScriptJson) {
     return ipcRenderer
       .invoke("stage4-import-final-script", { recapPath, finalScriptJson })
+      .then((result) => normalizeResult(result));
+  },
+  importStage4RefinedJson(targetDir, refinedJson) {
+    return ipcRenderer
+      .invoke("stage4-import-refined-json", { targetDir, refinedJson })
       .then((result) => normalizeResult(result));
   },
   importStage4GeminiJson(outPath, geminiJson) {

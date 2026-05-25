@@ -478,6 +478,71 @@ function registerStageIpcHandlers() {
     }
   });
 
+  handle("list-output-library", async (_event, payload) => {
+    const root = payload && typeof payload === "object" && typeof payload.root === "string" ? payload.root : "./output";
+    const workspace = getUserWorkspaceDir();
+    const resolvedRoot = path.resolve(workspace, root);
+
+    const toRelPath = (absPath) => {
+      const rel = path.relative(workspace, absPath);
+      const normalized = rel.split(path.sep).join(path.posix.sep);
+      return normalized.startsWith(".") ? normalized : `./${normalized}`;
+    };
+
+    const isFinalDirName = (name) => /^final(?:_\d+)?$/.test(name);
+
+    try {
+      if (!fs.existsSync(resolvedRoot)) {
+        return createSuccess({ root: toRelPath(resolvedRoot), mangas: [] });
+      }
+
+      const mangaEntries = fs
+        .readdirSync(resolvedRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => {
+          const mangaName = entry.name;
+          const mangaAbs = path.join(resolvedRoot, mangaName);
+
+          const runs = fs
+            .readdirSync(mangaAbs, { withFileTypes: true })
+            .filter((child) => child.isDirectory() && isFinalDirName(child.name))
+            .map((child) => {
+              const runAbs = path.join(mangaAbs, child.name);
+              const recapPages = path.join(runAbs, "recap_pages.json");
+              const refinedRecap = path.join(runAbs, "recap_pages_with_sentences.json");
+              const storyboard = path.join(runAbs, "storyboard.json");
+              const finalScript = path.join(runAbs, "final_script.json");
+              const video = path.join(runAbs, "video.mp4");
+
+              return {
+                name: child.name,
+                path: toRelPath(runAbs),
+                recap_pages_path: fs.existsSync(recapPages) ? toRelPath(recapPages) : null,
+                refined_recap_path: fs.existsSync(refinedRecap) ? toRelPath(refinedRecap) : null,
+                storyboard_path: fs.existsSync(storyboard) ? toRelPath(storyboard) : null,
+                final_script_path: fs.existsSync(finalScript) ? toRelPath(finalScript) : null,
+                video_path: fs.existsSync(video) ? toRelPath(video) : null,
+              };
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+          return {
+            name: mangaName,
+            path: toRelPath(mangaAbs),
+            runs,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      return createSuccess({ root: toRelPath(resolvedRoot), mangas: mangaEntries });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to scan output library.", {
+        root: resolvedRoot,
+        reason: error?.message || String(error),
+      });
+    }
+  });
+
   handle("get-app-settings", async () => {
     const settings = readAppSettings();
     const anthropicApiKey = typeof settings.anthropicApiKey === "string" ? settings.anthropicApiKey.trim() : "";
@@ -666,6 +731,87 @@ function registerStageIpcHandlers() {
 
     if (!parsed || typeof parsed !== "object") {
       return createError(ErrorCodes.INVALID_REQUEST, "refinedRecapJson must be a JSON object.");
+    }
+    if (parsed.mode !== "page") {
+      return createError(ErrorCodes.INVALID_REQUEST, "Expected mode='page'.");
+    }
+    if (!Array.isArray(parsed.pages) || parsed.pages.length === 0) {
+      return createError(ErrorCodes.INVALID_REQUEST, "Expected non-empty pages[].");
+    }
+    for (const page of parsed.pages) {
+      if (!page || typeof page !== "object" || !Number.isInteger(page.page_idx)) {
+        return createError(ErrorCodes.INVALID_REQUEST, "Each pages[] item must include page_idx (int).");
+      }
+      if (typeof page.recap !== "string") {
+        return createError(ErrorCodes.INVALID_REQUEST, "Each pages[] item must include recap (string).");
+      }
+      if (!Array.isArray(page.panels)) {
+        return createError(ErrorCodes.INVALID_REQUEST, "Each pages[] item must include panels[].");
+      }
+      for (const panel of page.panels) {
+        if (!panel || typeof panel !== "object") {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must be an object.");
+        }
+        if (!Number.isInteger(panel.sub_panel_idx)) {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include sub_panel_idx (int).");
+        }
+        if (typeof panel.panel_id !== "string" || !panel.panel_id.trim()) {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include panel_id (string).");
+        }
+        if (typeof panel.crop_path !== "string" || !panel.crop_path.trim()) {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include crop_path (string).");
+        }
+        if (typeof panel.sentence !== "string") {
+          return createError(ErrorCodes.INVALID_REQUEST, "Each panels[] item must include sentence (string).");
+        }
+      }
+    }
+
+    try {
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+      sendStageEvent(_event, {
+        type: "complete",
+        stage: 4,
+        refined_recap_path: outPath,
+        imported: true,
+      });
+      return createSuccess({ refined_recap_path: outPath });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to write recap_pages_with_sentences.json.", {
+        reason: error?.message || String(error),
+        outPath,
+      });
+    }
+  });
+
+  handle("stage4-import-refined-json", async (_event, payload) => {
+    if (!payload || typeof payload !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
+    }
+    const targetDir = payload.targetDir;
+    const refinedJson = payload.refinedJson;
+    if (typeof targetDir !== "string" || !targetDir.trim()) {
+      return createError(ErrorCodes.INVALID_REQUEST, "targetDir is required.");
+    }
+    if (typeof refinedJson !== "string" || !refinedJson.trim()) {
+      return createError(ErrorCodes.INVALID_REQUEST, "refinedJson is required.");
+    }
+
+    const resolvedDir = path.resolve(process.cwd(), targetDir);
+    const outPath = path.join(resolvedDir, "recap_pages_with_sentences.json");
+
+    let parsed;
+    try {
+      parsed = JSON.parse(refinedJson);
+    } catch (error) {
+      return createError(ErrorCodes.INVALID_REQUEST, "refinedJson must be valid JSON.", {
+        reason: error?.message || String(error),
+      });
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "refinedJson must be a JSON object.");
     }
     if (parsed.mode !== "page") {
       return createError(ErrorCodes.INVALID_REQUEST, "Expected mode='page'.");

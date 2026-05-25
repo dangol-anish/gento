@@ -33,6 +33,23 @@ type DownloadsLibrary = {
   }>;
 };
 
+type OutputLibrary = {
+  root: string;
+  mangas: Array<{
+    name: string;
+    path: string;
+    runs: Array<{
+      name: string;
+      path: string;
+      recap_pages_path: string | null;
+      refined_recap_path: string | null;
+      storyboard_path: string | null;
+      final_script_path: string | null;
+      video_path: string | null;
+    }>;
+  }>;
+};
+
 type StageEvent = {
   type: "progress" | "complete" | "error" | "log";
   stage?: number;
@@ -73,11 +90,16 @@ declare global {
     gento: {
       runStage: (stage: number, args?: string[]) => Promise<GentoResult<{ events: StageEvent[] }>>;
       listDownloadsLibrary: (root?: string) => Promise<GentoResult<DownloadsLibrary>>;
+      listOutputLibrary: (root?: string) => Promise<GentoResult<OutputLibrary>>;
       getAppSettings: () => Promise<GentoResult<AppSettingsSummary>>;
       setAppSettings: (patch: { anthropicApiKey?: string; geminiApiKey?: string }) => Promise<GentoResult<AppSettingsSummary>>;
       importStage4FinalScript: (
         recapPath: string,
         finalScriptJson: string,
+      ) => Promise<GentoResult<{ refined_recap_path: string }>>;
+      importStage4RefinedJson: (
+        targetDir: string,
+        refinedJson: string,
       ) => Promise<GentoResult<{ refined_recap_path: string }>>;
       importStage4GeminiJson: (
         outPath: string,
