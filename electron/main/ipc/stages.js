@@ -1012,6 +1012,17 @@ function registerStageIpcHandlers() {
         return runResult;
       }
 
+      if (stage === 7) {
+        const python = pickPythonCommand();
+        const runResult = await runPythonCommand(
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.trim_manga_json", ...args],
+          _event,
+          stage,
+        );
+        return runResult;
+      }
+
       if (stage === 99) {
         const python = pickPythonCommand();
         const runResult = await runPythonCommand(

@@ -15,6 +15,7 @@ import { Stage2GeminiAccuracyPass } from "@/components/stage2/Stage2GeminiAccura
 import { Stage4ScriptRefiner } from "@/components/stage4/Stage4ScriptRefiner";
 import { Stage5AudioGenerator } from "@/components/stage5/Stage5AudioGenerator";
 import { Stage6VideoRenderer } from "@/components/stage6/Stage6VideoRenderer";
+import { Stage7JsonTrimmer } from "@/components/stage7/Stage7JsonTrimmer";
 import { SessionCard } from "@/components/session/SessionCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ const STAGE_LABELS: Record<number, string> = {
   4: "Refine",
   5: "Audio",
   6: "Video",
+  7: "Trim",
 };
 
 const SIDEBAR_STAGES = [
@@ -47,6 +49,7 @@ const SIDEBAR_STAGES = [
   { id: 4, label: STAGE_LABELS[4] },
   { id: 5, label: STAGE_LABELS[5] },
   { id: 6, label: STAGE_LABELS[6] },
+  { id: 7, label: STAGE_LABELS[7] },
 ];
 
 function getStageLabel(stageId: number) {
@@ -217,6 +220,8 @@ export default function HomeClient() {
                   <Stage5AudioGenerator onSessionUpdate={setSessionState} />
                 ) : activeStage === 6 ? (
                   <Stage6VideoRenderer onSessionUpdate={setSessionState} />
+                ) : activeStage === 7 ? (
+                  <Stage7JsonTrimmer onSessionUpdate={setSessionState} />
                 ) : (
                   <div className="space-y-4 rounded-3xl border border-border/60 bg-background/80 p-6 text-sm text-muted-foreground">
                     <h2 className="text-base font-semibold text-foreground">Stage {activeStage} is not implemented yet</h2>
