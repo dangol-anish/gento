@@ -2,11 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import { FiFolder } from "react-icons/fi";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
 import { formatRuntimeError } from "@/lib/runtimeErrors";
-import { buildStage5Args, extractCompleteSummary, extractLastPercent } from "@/lib/stage5";
+import {
+  buildStage5Args,
+  extractCompleteSummary,
+  extractLastPercent,
+} from "@/lib/stage5";
 
 export type Stage5Session = {
   mangaUrl: string;
@@ -55,20 +65,23 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
   const [selectedRunDirs, setSelectedRunDirs] = useState<string[]>([]);
 
   const [voice, setVoice] = useState("am_echo");
-  const [speed, setSpeed] = useState(1.2);
+  const [speed, setSpeed] = useState(1.0);
   const [timingTts, setTimingTts] = useState(false);
 
   const [isRunningStage, setIsRunningStage] = useState(false);
   const [hasStageStarted, setHasStageStarted] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [stageMessage, setStageMessage] = useState("Ready to generate audio (Stage 5).");
+  const [stageMessage, setStageMessage] = useState(
+    "Ready to generate audio (Stage 5).",
+  );
   const [lastOutputDir, setLastOutputDir] = useState("./output");
   const [queueContext, setQueueContext] = useState<QueueContext>(null);
 
   const sessionState = useMemo<Stage5Session>(
     () => ({
       mangaUrl: outputRoot,
-      totalChapters: library?.mangas.reduce((sum, manga) => sum + manga.runs.length, 0) ?? 0,
+      totalChapters:
+        library?.mangas.reduce((sum, manga) => sum + manga.runs.length, 0) ?? 0,
       selectedChapters: selectedRunDirs.length,
       progress,
       isScraping: false,
@@ -76,7 +89,15 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       lastOutputDir,
       stageMessage,
     }),
-    [outputRoot, library, selectedRunDirs.length, progress, isRunningStage, lastOutputDir, stageMessage],
+    [
+      outputRoot,
+      library,
+      selectedRunDirs.length,
+      progress,
+      isRunningStage,
+      lastOutputDir,
+      stageMessage,
+    ],
   );
 
   useEffect(() => {
@@ -85,7 +106,8 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
 
   const refreshLibrary = async (nextRoot?: string) => {
     if (!window.gento?.listOutputLibrary) {
-      const message = "Desktop bridge is unavailable. Restart Electron to reload preload.";
+      const message =
+        "Desktop bridge is unavailable. Restart Electron to reload preload.";
       setStageMessage(message);
       toast.error("Stage 5 unavailable", message);
       return;
@@ -95,14 +117,21 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       const root = (nextRoot ?? outputRoot).trim() || "./output";
       const result = await window.gento.listOutputLibrary(root);
       if (!result.ok) {
-        const message = formatRuntimeError(result.error.code, result.error.message, result.error.details);
+        const message = formatRuntimeError(
+          result.error.code,
+          result.error.message,
+          result.error.details,
+        );
         setStageMessage(message);
         toast.error("Failed to scan output", message);
         return;
       }
       setLibrary(result.data);
       setActiveMangaPath((current) => {
-        if (current && result.data.mangas.some((manga) => manga.path === current)) {
+        if (
+          current &&
+          result.data.mangas.some((manga) => manga.path === current)
+        ) {
           return current;
         }
         return result.data.mangas[0]?.path ?? "";
@@ -147,13 +176,21 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       }
 
       if (payload.type === "complete") {
-        const outScript = payload.final_script_path ? payload.final_script_path : "";
-        const outAudio = payload.stitched_audio_path ? payload.stitched_audio_path : "";
+        const outScript = payload.final_script_path
+          ? payload.final_script_path
+          : "";
+        const outAudio = payload.stitched_audio_path
+          ? payload.stitched_audio_path
+          : "";
         setProgress(100);
         setStageMessage(payload.message ?? "Stage 5 complete.");
         toast.success(
           "Stage 5 complete",
-          outScript ? `Wrote ${outScript}` : outAudio ? `Wrote ${outAudio}` : "Audio outputs written.",
+          outScript
+            ? `Wrote ${outScript}`
+            : outAudio
+              ? `Wrote ${outAudio}`
+              : "Audio outputs written.",
         );
         setIsRunningStage(false);
         setHasStageStarted(false);
@@ -166,7 +203,10 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
             ? (payload.error as { message?: string }).message
             : undefined;
         setStageMessage(errorMessage || payload.message || "Stage 5 failed.");
-        toast.error("Stage 5 failed", errorMessage || payload.message || "Stage 5 failed.");
+        toast.error(
+          "Stage 5 failed",
+          errorMessage || payload.message || "Stage 5 failed.",
+        );
         setProgress(0);
         setIsRunningStage(false);
         setHasStageStarted(false);
@@ -177,7 +217,9 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
   }, [toast]);
 
   const activeManga = useMemo(() => {
-    return library?.mangas.find((manga) => manga.path === activeMangaPath) ?? null;
+    return (
+      library?.mangas.find((manga) => manga.path === activeMangaPath) ?? null
+    );
   }, [activeMangaPath, library]);
 
   const visibleRuns = useMemo(() => {
@@ -188,7 +230,10 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
   }, [activeManga, runFilter]);
 
   const runIndexByPath = useMemo(() => {
-    const map = new Map<string, { mangaName: string; runName: string; refinedRecapPath: string | null }>();
+    const map = new Map<
+      string,
+      { mangaName: string; runName: string; refinedRecapPath: string | null }
+    >();
     for (const manga of library?.mangas ?? []) {
       for (const run of manga.runs) {
         map.set(run.path, {
@@ -202,14 +247,19 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
   }, [library]);
 
   const toggleRunSelection = (runDir: string) => {
-    setSelectedRunDirs((current) => (current.includes(runDir) ? current.filter((v) => v !== runDir) : [...current, runDir]));
+    setSelectedRunDirs((current) =>
+      current.includes(runDir)
+        ? current.filter((v) => v !== runDir)
+        : [...current, runDir],
+    );
   };
 
   const clearSelection = () => setSelectedRunDirs([]);
 
   const handleRunStage5Queue = async () => {
     if (!window.gento?.runStage) {
-      const message = "Desktop bridge is unavailable. Restart Electron to reload preload.";
+      const message =
+        "Desktop bridge is unavailable. Restart Electron to reload preload.";
       setStageMessage(message);
       toast.error("Stage 5 unavailable", message);
       return;
@@ -219,19 +269,33 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       .map((path) => path.trim())
       .filter(Boolean)
       .map((path) => ({ path, meta: runIndexByPath.get(path) ?? null }))
-      .sort((a, b) => (a.meta?.mangaName ?? a.path).localeCompare(b.meta?.mangaName ?? b.path) || (a.meta?.runName ?? a.path).localeCompare(b.meta?.runName ?? b.path));
+      .sort(
+        (a, b) =>
+          (a.meta?.mangaName ?? a.path).localeCompare(
+            b.meta?.mangaName ?? b.path,
+          ) ||
+          (a.meta?.runName ?? a.path).localeCompare(b.meta?.runName ?? b.path),
+      );
 
     if (targets.length === 0) {
       setStageMessage("Select one or more chapters first.");
-      toast.error("No chapters selected", "Select at least one final/final_x folder to run Stage 5.");
+      toast.error(
+        "No chapters selected",
+        "Select at least one final/final_x folder to run Stage 5.",
+      );
       return;
     }
 
     for (const target of targets) {
       const refinedRecapPath = target.meta?.refinedRecapPath;
       if (!refinedRecapPath) {
-        setStageMessage(`Missing recap_pages_with_sentences.json for ${target.path}. Run Stage 4 first.`);
-        toast.error("Missing input", `Run Stage 4 first for ${target.path} (needs recap_pages_with_sentences.json).`);
+        setStageMessage(
+          `Missing recap_pages_with_sentences.json for ${target.path}. Run Stage 4 first.`,
+        );
+        toast.error(
+          "Missing input",
+          `Run Stage 4 first for ${target.path} (needs recap_pages_with_sentences.json).`,
+        );
         return;
       }
     }
@@ -253,12 +317,17 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
         setQueueContext({ index: i + 1, total: targets.length, label });
 
         const refinedDir = normalizePosixPath(refinedRecapPath).includes("/")
-          ? normalizePosixPath(refinedRecapPath).slice(0, normalizePosixPath(refinedRecapPath).lastIndexOf("/"))
+          ? normalizePosixPath(refinedRecapPath).slice(
+              0,
+              normalizePosixPath(refinedRecapPath).lastIndexOf("/"),
+            )
           : target.path;
         setLastOutputDir(`${refinedDir}/audio`);
 
         setProgress(5);
-        setStageMessage(`(${i + 1}/${targets.length}) Generating audio for ${label}...`);
+        setStageMessage(
+          `(${i + 1}/${targets.length}) Generating audio for ${label}...`,
+        );
 
         const args = buildStage5Args({
           refinedRecapPagesPath: refinedRecapPath,
@@ -267,9 +336,26 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
           timingTts,
         });
 
+        console.log("Stage 5 args:", args);
+
+        console.log("⏱️ Stage 5 START:", new Date().toISOString());
+        const timerStart = performance.now();
+
         const result = await window.gento.runStage(5, args);
+
+        // Timer ends here FIRST
+        const timerEnd = performance.now();
+        console.log("⏱️ Stage 5 END:", new Date().toISOString());
+        console.log(
+          `⏱️ Stage 5 took: ${((timerEnd - timerStart) / 1000).toFixed(2)} seconds`,
+        );
+
         if (!result.ok) {
-          const message = formatRuntimeError(result.error.code, result.error.message, result.error.details);
+          const message = formatRuntimeError(
+            result.error.code,
+            result.error.message,
+            result.error.details,
+          );
           setStageMessage(message);
           toast.error("Stage 5 failed", message);
           setProgress(0);
@@ -290,7 +376,12 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       setQueueContext(null);
       setProgress(100);
       setStageMessage("Stage 5 complete.");
-      toast.success("Stage 5 complete", allFinalScripts.length ? `Wrote ${allFinalScripts.length} final_script.json files` : "Audio outputs written.");
+      toast.success(
+        "Stage 5 complete",
+        allFinalScripts.length
+          ? `Wrote ${allFinalScripts.length} final_script.json files`
+          : "Audio outputs written.",
+      );
     } catch (error) {
       const message = (error as Error).message;
       setStageMessage(`Stage 5 failed: ${message}`);
@@ -305,7 +396,8 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
 
   const handleOpenFolder = async () => {
     if (!window.gento?.openPath) {
-      const message = "Desktop bridge is unavailable. Restart Electron to reload preload.";
+      const message =
+        "Desktop bridge is unavailable. Restart Electron to reload preload.";
       setStageMessage(message);
       toast.error("Open folder failed", message);
       return;
@@ -323,7 +415,8 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
       <CardHeader className="border-b border-border/60 p-5">
         <CardTitle>Stage 5 Audio</CardTitle>
         <CardDescription>
-          Select multiple chapters (across manga) and generate audio into each chapter&apos;s own `final*/audio` folder.
+          Select multiple chapters (across manga) and generate audio into each
+          chapter&apos;s own `final*/audio` folder.
         </CardDescription>
       </CardHeader>
 
@@ -340,16 +433,26 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
               placeholder="./output"
               className="glass-interactive h-10 min-w-[240px] flex-1 rounded-xl px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground border"
             />
-            <Button variant="secondary" onClick={() => refreshLibrary(outputRoot)} disabled={isLoadingLibrary} className="shrink-0">
+            <Button
+              variant="secondary"
+              onClick={() => refreshLibrary(outputRoot)}
+              disabled={isLoadingLibrary}
+              className="shrink-0"
+            >
               {isLoadingLibrary ? "Refreshing..." : "Refresh"}
             </Button>
-            <Button variant="secondary" onClick={handleOpenFolder} className="gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              onClick={handleOpenFolder}
+              className="gap-2 shrink-0"
+            >
               <FiFolder className="h-4 w-4" />
               Open
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Select runs that already have `recap_pages_with_sentences.json` (Stage 4 output). Audio stays under each run folder.
+            Select runs that already have `recap_pages_with_sentences.json`
+            (Stage 4 output). Audio stays under each run folder.
           </p>
         </div>
 
@@ -367,7 +470,9 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
                       type="button"
                       onClick={() => setActiveMangaPath(manga.path)}
                       className={`w-full rounded-xl px-3 py-2 text-left text-sm ${
-                        manga.path === activeMangaPath ? "bg-accent/70 text-foreground" : "hover:bg-accent/40 text-muted-foreground"
+                        manga.path === activeMangaPath
+                          ? "bg-accent/70 text-foreground"
+                          : "hover:bg-accent/40 text-muted-foreground"
                       }`}
                     >
                       <span className="truncate">{manga.name}</span>
@@ -375,7 +480,9 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
                   ))}
                 </div>
               ) : (
-                <p className="px-2 py-2 text-sm text-muted-foreground">No outputs found in {outputRoot}.</p>
+                <p className="px-2 py-2 text-sm text-muted-foreground">
+                  No outputs found in {outputRoot}.
+                </p>
               )}
             </div>
           </div>
@@ -403,9 +510,15 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
                       <label
                         key={run.path}
                         className={`flex items-center gap-2 rounded-xl px-2 py-2 text-sm ${
-                          disabled ? "opacity-60" : "cursor-pointer hover:bg-accent/40"
+                          disabled
+                            ? "opacity-60"
+                            : "cursor-pointer hover:bg-accent/40"
                         }`}
-                        title={disabled ? "Missing recap_pages_with_sentences.json (run Stage 4 first)" : run.path}
+                        title={
+                          disabled
+                            ? "Missing recap_pages_with_sentences.json (run Stage 4 first)"
+                            : run.path
+                        }
                       >
                         <input
                           type="checkbox"
@@ -414,13 +527,17 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
                           onChange={() => toggleRunSelection(run.path)}
                           className="h-4 w-4 accent-black"
                         />
-                        <span className="min-w-0 flex-1 truncate text-foreground">{run.name}</span>
+                        <span className="min-w-0 flex-1 truncate text-foreground">
+                          {run.name}
+                        </span>
                       </label>
                     );
                   })}
                 </div>
               ) : (
-                <p className="px-2 py-2 text-sm text-muted-foreground">Select a manga to see chapters.</p>
+                <p className="px-2 py-2 text-sm text-muted-foreground">
+                  Select a manga to see chapters.
+                </p>
               )}
             </div>
           </div>
@@ -475,8 +592,14 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
               <Button variant="secondary" size="sm" onClick={clearSelection}>
                 Clear selection
               </Button>
-              <Button onClick={handleRunStage5Queue} disabled={isRunningStage || hasStageStarted} size="sm">
-                {isRunningStage || hasStageStarted ? "Generating..." : "Run Stage 5 (queue)"}
+              <Button
+                onClick={handleRunStage5Queue}
+                disabled={isRunningStage || hasStageStarted}
+                size="sm"
+              >
+                {isRunningStage || hasStageStarted
+                  ? "Generating..."
+                  : "Run Stage 5 (queue)"}
               </Button>
             </div>
           </div>
@@ -484,7 +607,11 @@ export function Stage5AudioGenerator({ onSessionUpdate }: Props) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{queueContext ? `(${queueContext.index}/${queueContext.total}) ${queueContext.label} — ${stageMessage}` : stageMessage}</span>
+            <span>
+              {queueContext
+                ? `(${queueContext.index}/${queueContext.total}) ${queueContext.label} — ${stageMessage}`
+                : stageMessage}
+            </span>
             <span>{progress}%</span>
           </div>
           <Progress value={progress} />
