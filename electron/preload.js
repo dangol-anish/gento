@@ -74,6 +74,9 @@ contextBridge.exposeInMainWorld("gento", {
       .invoke("stage4-import-gemini-json", { outPath, geminiJson })
       .then((result) => normalizeResult(result));
   },
+  importShortsJson(outputRoot, shortsJson) {
+    return ipcRenderer.invoke("import-shorts-json", { outputRoot, shortsJson }).then((result) => normalizeResult(result));
+  },
   scrapeManga(url, outDir = "./downloads") {
     return ipcRenderer
       .invoke("scrape-manga", { url, outDir })
@@ -81,6 +84,9 @@ contextBridge.exposeInMainWorld("gento", {
   },
   openPath(path) {
     return ipcRenderer.invoke("open-path", { path }).then((result) => normalizeResult(result));
+  },
+  selectFolder(defaultPath) {
+    return ipcRenderer.invoke("select-folder", { defaultPath }).then((result) => normalizeResult(result));
   },
   renumberPages(pathOrPaths) {
     const payload = Array.isArray(pathOrPaths)

@@ -105,6 +105,11 @@ declare global {
         outPath: string,
         geminiJson: string,
       ) => Promise<GentoResult<{ gemini_path: string }>>;
+      importShortsJson: (
+        outputRoot: string,
+        shortsJson: string,
+      ) => Promise<GentoResult<{ shorts_path: string }>>;
+      selectFolder: (defaultPath?: string) => Promise<GentoResult<{ path: string }>>;
       scrapeManga: (
         url: string,
         outDir?: string,

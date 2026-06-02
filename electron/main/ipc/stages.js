@@ -1,4 +1,4 @@
-const { app, ipcMain, shell } = require("electron");
+const { app, dialog, ipcMain, shell } = require("electron");
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -614,6 +614,24 @@ function registerStageIpcHandlers() {
     }
   });
 
+  handle("select-folder", async (_event, payload) => {
+    const defaultPath = payload && typeof payload === "object" && typeof payload.defaultPath === "string" ? payload.defaultPath : undefined;
+    try {
+      const result = await dialog.showOpenDialog({
+        title: "Select output folder",
+        defaultPath: defaultPath ? path.resolve(getUserWorkspaceDir(), defaultPath) : undefined,
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Folder selection was canceled.");
+      }
+      const selected = result.filePaths[0];
+      return createSuccess({ path: selected });
+    } catch (error) {
+      return toUnknownError(error);
+    }
+  });
+
   handle("path-exists", async (_event, payload) => {
     if (!payload || typeof payload !== "object" || typeof payload.path !== "string") {
       return createError(ErrorCodes.INVALID_REQUEST, "path is required for path-exists.");
@@ -909,6 +927,46 @@ function registerStageIpcHandlers() {
     }
   });
 
+  handle("import-shorts-json", async (_event, payload) => {
+    if (!payload || typeof payload !== "object") {
+      return createError(ErrorCodes.INVALID_REQUEST, "payload must be an object.");
+    }
+    const outputRoot = typeof payload.outputRoot === "string" ? payload.outputRoot : "./output";
+    const shortsJson = payload.shortsJson;
+    if (typeof shortsJson !== "string" || !shortsJson.trim()) {
+      return createError(ErrorCodes.INVALID_REQUEST, "shortsJson is required.");
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(shortsJson);
+    } catch (error) {
+      return createError(ErrorCodes.INVALID_REQUEST, "shortsJson must be valid JSON.", {
+        reason: error?.message || String(error),
+      });
+    }
+
+    const resolvedOutRoot = path.resolve(process.cwd(), outputRoot || "./output");
+    try {
+      fs.mkdirSync(resolvedOutRoot, { recursive: true });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to create output root.", { reason: error?.message || String(error), resolvedOutRoot });
+    }
+
+    const filename = `shorts_pasted_${Date.now()}.json`;
+    const outPath = path.join(resolvedOutRoot, filename);
+
+    try {
+      fs.writeFileSync(outPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+      return createSuccess({ shorts_path: outPath });
+    } catch (error) {
+      return createError(ErrorCodes.STAGE_EXECUTION_FAILED, "Failed to write pasted shorts JSON file.", {
+        reason: error?.message || String(error),
+        outPath,
+      });
+    }
+  });
+
   handle("run-stage", async (_event, payload) => {
     const validationError = validateRunStagePayload(payload);
     if (validationError) {
@@ -1017,6 +1075,17 @@ function registerStageIpcHandlers() {
         const runResult = await runPythonCommand(
           python.command,
           [...python.prefixArgs, "-m", "scripts.trim_manga_json", ...args],
+          _event,
+          stage,
+        );
+        return runResult;
+      }
+
+      if (stage === 8) {
+        const python = pickPythonCommand();
+        const runResult = await runPythonCommand(
+          python.command,
+          [...python.prefixArgs, "-m", "scripts.build_shorts", ...args],
           _event,
           stage,
         );
